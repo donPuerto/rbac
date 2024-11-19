@@ -77,19 +77,3 @@ DROP FUNCTION IF EXISTS public.log_audit_event();
 DROP FUNCTION IF EXISTS public.process_audit();
 
 DROP FUNCTION IF EXISTS public.update_timestamp() CASCADE;
-
-
--- =====================================================================================
--- Create role_type enum
--- =====================================================================================
--- Drop the enum type if exists
-DROP TYPE IF EXISTS role_type CASCADE;
-CREATE TYPE role_type AS ENUM (
-    'super_admin',    -- Level 7: Full system access
-    'admin',          -- Level 6: System administration
-    'manager',        -- Level 5: User and content management
-    'moderator',      -- Level 4: Content moderation
-    'editor',         -- Level 3: Content management
-    'user',           -- Level 2: Standard user access
-    'guest'           -- Level 1: Limited access
-);
