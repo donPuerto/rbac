@@ -7,6 +7,7 @@
 -- User Management Functions
 -- ========================================================================================
 
+
 -- ========================================================================================
 /*
  1. Core User Functions:
@@ -18,36 +19,23 @@
     * user_exists(p_user_id UUID, p_include_deleted BOOLEAN DEFAULT false) - Check user existence with detailed status 
 */
 -- ========================================================================================
-/*
-Purpose: 
-  Trigger function that handles the creation of new users in the system:
-  - Creates user record with provided data
-  - Assigns default user role automatically
-  - Records audit logs and user activity
-  - Validates basic data (email format, required fields)
-
-Example Usage:
-
-1. Create trigger:
-CREATE TRIGGER handle_new_user_trigger
-AFTER INSERT ON auth.users
-FOR EACH ROW
-EXECUTE FUNCTION public.handle_new_user();
-
-2. Function is automatically called when inserting new user:
-INSERT INTO auth.users (
-    email,
-    raw_user_meta_data
-) VALUES (
-    'john.doe@example.com',
-    '{
-        "first_name": "John",
-        "last_name": "Doe",
-        "preferred_language": "en",
-        "timezone": "UTC"
-    }'
-);
-*/
+/**
+ * Function: handle_new_user()
+ * =====================================================================================
+ * Purpose: Trigger function for new user creation with duplicate checks
+ * 
+ * Description:
+ *   Handles the creation of new users with validation:
+ *   - Checks for duplicate email in users table
+ *   - Checks for duplicate phone in user_phone_numbers table (if provided)
+ *   - Creates user record with metadata
+ *   - Creates phone record if provided
+ *   - Creates audit log entry
+ *
+ * Trigger: AFTER INSERT ON auth.users
+ * Returns: TRIGGER
+ * Security: SECURITY DEFINER
+ */
 CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS TRIGGER
 SECURITY DEFINER
@@ -55,170 +43,138 @@ SET search_path = public
 LANGUAGE plpgsql
 AS $$
 DECLARE
-    default_role_id UUID;
-    v_current_timestamp TIMESTAMPTZ := now();
-    v_user_data JSONB;
+    v_phone TEXT;
+    v_country_code TEXT;
 BEGIN
-    -- Validate email format
-    IF NEW.email !~ '^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$' THEN
-        RAISE EXCEPTION 'Invalid email format';
+    -- Check for duplicate email
+    IF EXISTS (
+        SELECT 1 FROM public.users 
+        WHERE email = NEW.email 
+        AND id != NEW.id
+        AND deleted_at IS NULL
+    ) THEN
+        RAISE EXCEPTION 'Email address already exists: %', NEW.email;
     END IF;
 
-    -- Prepare user data
-    v_user_data := jsonb_build_object(
-        'email', LOWER(NEW.email),
-        'first_name', TRIM(COALESCE(NEW.raw_user_meta_data->>'first_name', '')),
-        'last_name', TRIM(COALESCE(NEW.raw_user_meta_data->>'last_name', '')),
-        'display_name', TRIM(COALESCE(NEW.raw_user_meta_data->>'display_name', 
-            NEW.raw_user_meta_data->>'first_name' || ' ' || NEW.raw_user_meta_data->>'last_name')),
-        'status', 'active',
-        'preferred_language', COALESCE(NEW.raw_user_meta_data->>'preferred_language', 'en'),
-        'timezone', COALESCE(NEW.raw_user_meta_data->>'timezone', 'UTC'),
-        'notification_preferences', '{"email": true, "sms": false}',
-        'is_active', true,
-        'created_at', v_current_timestamp,
-        'created_by', NEW.id
-    );
+    -- Get phone details from metadata if provided
+    v_phone := NEW.raw_user_meta_data->>'phone';
+    v_country_code := COALESCE(NEW.raw_user_meta_data->>'country_code', '+1');
 
-    -- Insert into public.users with basic info
+    -- Check for duplicate phone if provided
+    IF v_phone IS NOT NULL THEN
+        IF EXISTS (
+            SELECT 1 FROM public.user_phone_numbers
+            WHERE phone_number = v_phone
+            AND deleted_at IS NULL
+        ) THEN
+            RAISE EXCEPTION 'Phone number already exists: %', v_phone;
+        END IF;
+    END IF;
+
+    -- Create user record
     INSERT INTO public.users (
-        id, 
+        id,
         email,
         first_name,
         last_name,
-        display_name,
-        status,
-        preferred_language,
-        timezone,
-        notification_preferences,
-        is_active,
-        created_at,
+        raw_user_meta_data,
         created_by,
-        updated_at,
-        updated_by    
-    )
-    VALUES (
-        NEW.id, 
-        v_user_data->>'email',
-        v_user_data->>'first_name',
-        v_user_data->>'last_name',
-        v_user_data->>'display_name',
-        v_user_data->>'status',
-        v_user_data->>'preferred_language',
-        v_user_data->>'timezone',
-        (v_user_data->>'notification_preferences')::jsonb,
-        (v_user_data->>'is_active')::boolean,
-        v_current_timestamp,
+        status,
+        is_active
+    ) VALUES (
         NEW.id,
-        v_current_timestamp,
-        NEW.id        
+        NEW.email,
+        COALESCE(NEW.raw_user_meta_data->>'first_name', 'Unknown'),
+        COALESCE(NEW.raw_user_meta_data->>'last_name', 'User'),
+        NEW.raw_user_meta_data,
+        NEW.id,
+        'active',
+        TRUE
     );
 
-    -- Log user creation with comprehensive data
-    INSERT INTO public.audit_logs (
-        table_name,
-        record_id,
-        action,
-        old_data,
-        new_data,
-        performed_by,
-        performed_at
-    )
-    VALUES (
-        'users',
-        NEW.id,
-        'user_created',
-        NULL,
-        v_user_data,
-        NEW.id,
-        v_current_timestamp
-    );
-    
-    -- Get default role id (user role)
-    SELECT id INTO default_role_id 
-    FROM public.roles 
-    WHERE role_type = 'user'
-    AND deleted_at IS NULL
-    AND is_active = true;
-    
-    -- Assign default role with schema-matched fields
-    IF default_role_id IS NOT NULL THEN
-        INSERT INTO public.user_roles (
+    -- Create phone record if phone number provided
+    IF v_phone IS NOT NULL THEN
+        INSERT INTO public.user_phone_numbers (
             user_id,
-            role_id,
-            assigned_by,
-            assigned_at,
-            is_active,
-            created_at,
-            created_by,
-            updated_at,
-            updated_by
-        )
-        VALUES (
+            phone_number,
+            phone_type,
+            is_primary,
+            country_code,
+            created_by
+        ) VALUES (
             NEW.id,
-            default_role_id,
-            NEW.id,
-            v_current_timestamp,
-            true,
-            v_current_timestamp,
-            NEW.id,
-            v_current_timestamp,
+            v_phone,
+            COALESCE(NEW.raw_user_meta_data->>'phone_type', 'mobile'),
+            TRUE, -- First phone number is primary
+            v_country_code,
             NEW.id
-        );
-            
-        -- Log role assignment with comprehensive data
-        INSERT INTO public.audit_logs (
-            table_name,
-            record_id,
-            action,
-            old_data,
-            new_data,
-            performed_by,
-            performed_at
-        )
-        VALUES (
-            'user_roles',
-            NEW.id,
-            'role_assigned',
-            NULL,
-            jsonb_build_object(
-                'user_id', NEW.id,
-                'role_id', default_role_id,
-                'role_type', 'user',
-                'auto_assigned', true,
-                'assigned_at', v_current_timestamp,
-                'assigned_by', NEW.id,
-                'is_active', true
-            ),
-            NEW.id,
-            v_current_timestamp
         );
     END IF;
 
-    -- User activity log
-    INSERT INTO public.user_activities (
-        user_id,
-        activity_type,
-        description,
-        details,
-        ip_address,
-        user_agent,
-        created_at
-    )
-    VALUES (
+    -- Log the new user creation
+    PERFORM log_audit_event(
+        'users',
         NEW.id,
-        'account_created',
-        'New user account created',
-        v_user_data || jsonb_build_object(
-            'role_assigned', default_role_id IS NOT NULL,
-            'role_id', default_role_id
-        ),
-        current_setting('request.headers', true)::json->>'x-forwarded-for',
-        current_setting('request.headers', true)::json->>'user-agent',
-        v_current_timestamp
+        'create',
+        NULL,
+        jsonb_build_object(
+            'email', NEW.email,
+            'first_name', COALESCE(NEW.raw_user_meta_data->>'first_name', 'Unknown'),
+            'last_name', COALESCE(NEW.raw_user_meta_data->>'last_name', 'User'),
+            'phone', v_phone,
+            'country_code', v_country_code
+        )
     );
-    
+
     RETURN NEW;
+END;
+$$;
+--
+--
+--
+/**
+ * Function: is_user_active()
+ * =====================================================================================
+ * Purpose: Checks if a user account is active and not deleted
+ * 
+ * Parameters:
+ *   - p_user_id UUID: The ID of the user to check
+ * 
+ * Returns: BOOLEAN
+ *   - TRUE if user exists, is active, and not deleted
+ *   - FALSE otherwise
+ *
+ * Security: SECURITY DEFINER
+ * Stability: STABLE
+ *
+ * Description:
+ *   Performs a comprehensive check of user status by verifying:
+ *   - User exists in the database
+ *   - User is not soft deleted (deleted_at IS NULL)
+ *   - User is marked as active (is_active = TRUE)
+ *   - User status is 'active'
+ *
+ * Example Usage:
+ *   SELECT is_user_active('123e4567-e89b-12d3-a456-426614174000');
+ */
+CREATE OR REPLACE FUNCTION public.is_user_active(
+    p_user_id UUID
+)
+RETURNS BOOLEAN
+STABLE
+SECURITY DEFINER
+SET search_path = public
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    RETURN EXISTS (
+        SELECT 1 
+        FROM users u
+        WHERE u.id = p_user_id 
+        AND u.is_active = true 
+        AND u.status = 'active'
+        AND u.deleted_at IS NULL
+    );
 END;
 $$;
 --
@@ -276,7 +232,7 @@ $$;
 --
 --
 /*
-Purpose:
+Purpose: 
   Performs a soft delete on a user record by:
   - Marking the user as inactive
   - Setting deletion timestamp and user
@@ -446,8 +402,8 @@ BEGIN
     -- Log the restoration
     PERFORM log_audit_event(
         'users',
-        'restore',
         p_user_id,
+        'restore',
         NULL,
         jsonb_build_object('restored_by', v_current_user)
     );
@@ -459,267 +415,122 @@ $$;
 --
 --
 /*
-Purpose:
-  Trigger function that handles the cascading soft deletion of user-related records:
-  - Deactivates user roles
-  - Marks phone numbers as inactive
-  - Marks addresses as inactive
-  - Creates activity log entry
-  This ensures all related user data is consistently marked as deleted.
+Purpose: 
+  Restores a previously soft-deleted user account by:
+  - Clearing deletion markers
+  - Reactivating the account
+  - Logging the restoration in audit trail
+  
+Parameters:
+  p_user_id UUID - The ID of the soft-deleted user to restore
+  p_restored_by UUID - The ID of the user performing the restoration
+  p_reason TEXT - Optional reason for restoration
 
-Trigger Usage:
-  AFTER UPDATE ON users
-  Triggered when a user is soft deleted (deleted_at is set)
-
-Parameters (via NEW):
-  Trigger function using NEW record values:
-  - NEW.id: User ID being deleted
-  - NEW.deleted_at: Deletion timestamp
-  - NEW.deleted_by: ID of user performing deletion
+Returns:
+  BOOLEAN - true if restoration successful, false if user not found or not deleted
 
 Example Usage:
--- Create the trigger
-CREATE TRIGGER handle_user_soft_delete_trigger
-AFTER UPDATE OF deleted_at ON public.users
-FOR EACH ROW
-WHEN (OLD.deleted_at IS NULL AND NEW.deleted_at IS NOT NULL)
-EXECUTE FUNCTION public.handle_user_soft_delete();
+-- Restore a soft-deleted user
+SELECT public.restore_deleted_user('123e4567-e89b-12d3-a456-426614174000', '987fcdeb-51a2-4bc3-9876-543210987654', 'Account restored upon user request');
+
+-- Use in conditional logic
+IF public.restore_deleted_user(user_id, restored_by, reason) THEN
+    -- Handle successful restoration
+ELSE
+    -- Handle failed restoration
+END IF;
+
+Notes:
+  - Requires authenticated user context (auth.uid())
+  - Only works on soft-deleted users
+  - Creates audit log entry for the restoration
 */
-CREATE OR REPLACE FUNCTION public.handle_user_soft_delete()
-RETURNS TRIGGER
-SECURITY DEFINER
-SET search_path = public
-LANGUAGE plpgsql
-AS $$
-BEGIN
-    -- Deactivate all user roles
-    UPDATE public.user_roles
-    SET 
-        is_active = false,
-        updated_at = now(),
-        updated_by = NEW.deleted_by,
-        deleted_at = NEW.deleted_at,
-        deleted_by = NEW.deleted_by
-    WHERE user_id = NEW.id
-    AND deleted_at IS NULL;
-
-    -- Mark all phone numbers as inactive
-    UPDATE public.user_phone_numbers
-    SET 
-        is_active = false,
-        updated_at = now(),
-        updated_by = NEW.deleted_by,
-        deleted_at = NEW.deleted_at,
-        deleted_by = NEW.deleted_by
-    WHERE user_id = NEW.id
-    AND deleted_at IS NULL;
-
-    -- Mark all addresses as inactive
-    UPDATE public.user_addresses
-    SET 
-        is_active = false,
-        updated_at = now(),
-        updated_by = NEW.deleted_by,
-        deleted_at = NEW.deleted_at,
-        deleted_by = NEW.deleted_by
-    WHERE user_id = NEW.id
-    AND deleted_at IS NULL;
-
-    -- Log the soft delete
-    PERFORM log_activity(
-        NEW.id,
-        'user_deleted',
-        'User account soft deleted',
-        jsonb_build_object(
-            'deleted_by', NEW.deleted_by,
-            'deleted_at', NEW.deleted_at
-        )
-    );
-
-    RETURN NEW;
-END;
-$$;
---
---
---
--- ========================================================================================
--- 2. User Profile Functions:
--- ========================================================================================
-
--- Function: Handle phone number changes
-CREATE OR REPLACE FUNCTION public.handle_user_phone_number()
-RETURNS TRIGGER
+CREATE OR REPLACE FUNCTION public.restore_deleted_user(
+    p_user_id UUID,
+    p_restored_by UUID,
+    p_reason TEXT DEFAULT NULL
+)
+RETURNS BOOLEAN
 SECURITY DEFINER
 SET search_path = public
 LANGUAGE plpgsql
 AS $$
 DECLARE
-    v_current_timestamp TIMESTAMPTZ := now();
+    v_old_data JSONB;
+    v_new_data JSONB;
 BEGIN
-    -- Validate phone_type
-    IF NEW.phone_type NOT IN ('mobile', 'home', 'work', 'other') THEN
-        RAISE EXCEPTION 'Invalid phone type: must be mobile, home, work, or other';
-    END IF;
-
-    -- Normalize phone number (remove all non-numeric chars except +)
-    NEW.phone_number := regexp_replace(NEW.phone_number, '[^0-9+]', '', 'g');
-    
-    -- Validate phone number format (basic validation)
-    IF NEW.phone_number !~ '^\+?[0-9]{10,15}$' THEN
-        RAISE EXCEPTION 'Invalid phone number format';
-    END IF;
-
-    -- Check unique constraint
-    IF EXISTS (
-        SELECT 1
-        FROM public.user_phone_numbers
-        WHERE user_id = NEW.user_id
-        AND phone_number = NEW.phone_number
-        AND id != COALESCE(NEW.id, uuid_nil())
-        AND deleted_at IS NULL
+    -- Check if user exists and is deleted
+    IF NOT EXISTS (
+        SELECT 1 FROM public.users 
+        WHERE id = p_user_id 
+        AND deleted_at IS NOT NULL
     ) THEN
-        RAISE EXCEPTION 'Phone number already exists for this user';
+        RETURN FALSE;
     END IF;
 
-    -- Handle primary phone logic
-    IF NEW.is_primary THEN
-        UPDATE public.user_phone_numbers
-        SET 
-            is_primary = false,
-            updated_at = v_current_timestamp,
-            updated_by = NEW.updated_by,
-            version = version + 1
-        WHERE 
-            user_id = NEW.user_id 
-            AND id != COALESCE(NEW.id, uuid_nil())
-            AND deleted_at IS NULL;
-            
-        -- Log change in activity log
-        INSERT INTO public.user_activities (
-            user_id,
-            activity_type,
-            description,
-            details,
-            ip_address,
-            user_agent
-        )
-        VALUES (
-            NEW.user_id,
-            'primary_phone_changed',
-            'Primary phone number updated',
+    -- Capture old data for audit
+    SELECT jsonb_build_object(
+        'email', email,
+        'status', status,
+        'is_active', is_active,
+        'deleted_at', deleted_at,
+        'deleted_by', deleted_by,
+        'updated_at', updated_at,
+        'updated_by', updated_by
+    )
+    INTO v_old_data
+    FROM public.users
+    WHERE id = p_user_id;
+
+    -- Restore the user
+    UPDATE public.users
+    SET deleted_at = NULL,
+        deleted_by = NULL,
+        is_active = TRUE,
+        status = 'active',
+        updated_at = CURRENT_TIMESTAMP,
+        updated_by = p_restored_by
+    WHERE id = p_user_id
+    AND deleted_at IS NOT NULL
+    RETURNING jsonb_build_object(
+        'email', email,
+        'status', status,
+        'is_active', is_active,
+        'deleted_at', deleted_at,
+        'deleted_by', deleted_by,
+        'updated_at', updated_at,
+        'updated_by', updated_by
+    ) INTO v_new_data;
+
+    -- If user was found and restored
+    IF FOUND THEN
+        -- Log the activity
+        PERFORM log_activity(
+            p_restored_by,
+            'user_restored',
+            COALESCE(p_reason, 'User account restored'),
             jsonb_build_object(
-                'phone_number', NEW.phone_number,
-                'phone_type', NEW.phone_type,
-                'country_code', NEW.country_code,
-                'is_verified', NEW.is_verified
-            ),
-            current_setting('request.headers', true)::json->>'x-forwarded-for',
-            current_setting('request.headers', true)::json->>'user-agent'
+                'user_id', p_user_id,
+                'restored_by', p_restored_by,
+                'reason', p_reason,
+                'restored_at', CURRENT_TIMESTAMP
+            )
         );
-    END IF;
 
-    -- Increment version
-    NEW.version := COALESCE(OLD.version, 0) + 1;
-    
-    RETURN NEW;
-END;
-$$;
---
---
---
--- Function: handle_user_address
-CREATE OR REPLACE FUNCTION public.handle_user_address()
-RETURNS TRIGGER
-SECURITY DEFINER
-SET search_path = public
-LANGUAGE plpgsql
-AS $$
-DECLARE
-    v_current_timestamp TIMESTAMPTZ := now();
-BEGIN
-    -- Validate address_type
-    IF NEW.address_type NOT IN ('home', 'work', 'billing', 'shipping', 'other') THEN
-        RAISE EXCEPTION 'Invalid address type: must be home, work, billing, shipping, or other';
-    END IF;
-    
-    -- Basic validation
-    IF TRIM(NEW.street_address) = '' THEN
-        RAISE EXCEPTION 'Street address cannot be empty';
-    END IF;
-    
-    IF TRIM(NEW.city) = '' THEN
-        RAISE EXCEPTION 'City cannot be empty';
-    END IF;
-    
-    IF TRIM(NEW.postal_code) = '' THEN
-        RAISE EXCEPTION 'Postal code cannot be empty';
-    END IF;
-
-    -- Normalize data
-    NEW.street_address := TRIM(NEW.street_address);
-    NEW.apartment_unit := TRIM(NEW.apartment_unit);
-    NEW.city := TRIM(NEW.city);
-    NEW.state_province := TRIM(NEW.state_province);
-    NEW.postal_code := TRIM(NEW.postal_code);
-    NEW.country := UPPER(TRIM(NEW.country));
-
-    -- Check unique constraint
-    IF EXISTS (
-        SELECT 1
-        FROM public.user_addresses
-        WHERE user_id = NEW.user_id
-        AND address_type = NEW.address_type
-        AND street_address = NEW.street_address
-        AND COALESCE(apartment_unit, '') = COALESCE(NEW.apartment_unit, '')
-        AND id != COALESCE(NEW.id, uuid_nil())
-        AND deleted_at IS NULL
-    ) THEN
-        RAISE EXCEPTION 'This address already exists for the user';
-    END IF;
-
-    -- Handle primary address logic
-    IF NEW.is_primary THEN
-        UPDATE public.user_addresses
-        SET 
-            is_primary = false,
-            updated_at = v_current_timestamp,
-            updated_by = NEW.updated_by,
-            version = version + 1
-        WHERE 
-            user_id = NEW.user_id 
-            AND address_type = NEW.address_type
-            AND id != COALESCE(NEW.id, uuid_nil())
-            AND deleted_at IS NULL;
-            
-        -- Log in user_activities
-        INSERT INTO public.user_activities (
-            user_id,
-            activity_type,
-            description,
-            details,
-            ip_address,
-            user_agent
-        )
-        VALUES (
-            NEW.user_id,
-            'primary_address_changed',
-            format('Primary %s address updated', NEW.address_type),
-            jsonb_build_object(
-                'address_type', NEW.address_type,
-                'city', NEW.city,
-                'state_province', NEW.state_province,
-                'country', NEW.country,
-                'is_verified', NEW.is_verified
-            ),
-            current_setting('request.headers', true)::json->>'x-forwarded-for',
-            current_setting('request.headers', true)::json->>'user-agent'
+        -- Create audit log
+        PERFORM log_audit_event(
+            'users',
+            p_user_id,
+            'restore',
+            v_old_data,
+            v_new_data,
+            p_restored_by
         );
+
+        RETURN TRUE;
     END IF;
 
-    -- Increment version
-    NEW.version := COALESCE(OLD.version, 0) + 1;
-    
-    RETURN NEW;
+    RETURN FALSE;
 END;
 $$;
 --
@@ -732,28 +543,8 @@ $$;
 -- ========================================================================================
 -- 1. Core Role Functions:
 -- ========================================================================================
--- Function: Initialize default roles
-CREATE OR REPLACE FUNCTION public.initialize_default_roles()
-RETURNS void
-LANGUAGE plpgsql
-SECURITY DEFINER
-AS $$
-BEGIN
-    -- Insert default roles
-    INSERT INTO public.roles (name, description, role_type, is_system_role)
-    VALUES 
-        ('Super Administrator', 'Complete system access', 'super_admin', true),
-        ('Administrator', 'System administration access', 'admin', true),
-        ('Manager', 'User and content management', 'manager', true),
-        ('Editor', 'Content management', 'editor', true),
-        ('User', 'Standard user access', 'user', true),
-        ('Guest', 'Limited access', 'guest', true)
-    ON CONFLICT (name) DO NOTHING;
-END;
-$$;
---
---
---
+
+
 -- =====================================================================================
 -- Function: get_role_hierarchy_level
 -- Purpose: Helper function to convert role_type to numeric hierarchy level
@@ -992,8 +783,8 @@ BEGIN
         JOIN public.roles r ON r.id = ur.role_id
         WHERE ur.user_id = p_user_id
         AND ur.deleted_at IS NULL
-        AND ur.is_active = true
         AND r.deleted_at IS NULL
+        AND ur.is_active = true
         AND r.is_active = true
         AND (
             CASE WHEN p_check_higher_roles THEN
@@ -1324,7 +1115,7 @@ Parameters:
 - p_old_data: Previous state of the record (for updates/deletes)
 - p_new_data: New state of the record (for creates/updates)
 - p_metadata: Additional contextual information
-Returns: UUID of the created audit log entry';
+Returns: UUID of the created audit log entry
 
 -- Example usage:
 
@@ -1383,8 +1174,8 @@ BEGIN
     
     -- Try to get IP and user agent from request context
     BEGIN
-        v_ip_address := current_setting('app.request_ip', true);
-        v_user_agent := current_setting('app.request_user_agent', true);
+        v_ip_address := current_setting('request.headers', true)::json->>'x-forwarded-for';
+        v_user_agent := current_setting('request.headers', true)::json->>'user-agent';
     EXCEPTION WHEN OTHERS THEN
         v_ip_address := NULL;
         v_user_agent := NULL;
@@ -1502,8 +1293,7 @@ Returns: Boolean indicating success/failure
 
 Examples:
 SELECT manage_user_role(user_id, ''editor'', admin_id, ''assign'');  -- Assign editor role
-SELECT manage_user_role(user_id, ''editor'', admin_id, ''revoke'');  -- Revoke editor role';
-
+SELECT manage_user_role(user_id, ''editor'', admin_id, ''revoke'');  -- Revoke editor role
 */
 CREATE OR REPLACE FUNCTION public.manage_user_role(
     p_user_id UUID,                -- Target user to manage role for
@@ -1821,8 +1611,8 @@ BEGIN
         p_activity_type,
         p_description,
         p_details,
-        current_setting('app.request_ip', true),
-        current_setting('app.request_user_agent', true)
+        current_setting('request.headers', true)::json->>'x-forwarded-for',
+        current_setting('request.headers', true)::json->>'user-agent'
     )
     RETURNING id INTO v_activity_id;
     
@@ -1889,10 +1679,3 @@ BEGIN
     RETURN NEW;
 END;
 $$;
-
-
-
--- ========================================================================================
--- FOR CHECKING HERE
--- ========================================================================================
-

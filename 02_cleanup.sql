@@ -21,6 +21,7 @@ DROP TRIGGER IF EXISTS on_user_phone_number_change ON public.user_phone_numbers;
 DROP TRIGGER IF EXISTS on_user_address_change ON public.user_addresses;
 DROP TRIGGER IF EXISTS on_user_role_change ON public.user_roles;
 DROP TRIGGER IF EXISTS before_user_delete ON public.users;
+DROP TRIGGER IF EXISTS handle_user_soft_delete_trigger ON public.users;
 
 -- Drop Activity and Audit Tables
 -- =====================================================================================
@@ -45,13 +46,14 @@ DROP TABLE IF EXISTS public.users CASCADE;                  -- Core users table
 
 -- Drop Functions
 -- =====================================================================================
-DROP FUNCTION IF EXISTS public.handle_new_user();
+DROP FUNCTION IF EXISTS public.handle_new_user() CASCADE;
+DROP FUNCTION IF EXISTS public.is_user_active(UUID) CASCADE;
+DROP FUNCTION IF EXISTS public.soft_delete_user(UUID) CASCADE;
+DROP FUNCTION IF EXISTS public.restore_deleted_user(UUID) CASCADE;
+DROP FUNCTION IF EXISTS public.handle_user_soft_delete() CASCADE;
+DROP FUNCTION IF EXISTS public.user_exists(UUID, BOOLEAN) CASCADE;
 DROP FUNCTION IF EXISTS public.handle_user_phone_number();
 DROP FUNCTION IF EXISTS public.handle_user_address();
-DROP FUNCTION IF EXISTS public.handle_user_soft_delete();
-DROP FUNCTION IF EXISTS public.soft_delete_user(UUID);
-DROP FUNCTION IF EXISTS public.restore_deleted_user(UUID);
-DROP FUNCTION IF EXISTS public.is_user_active(UUID);
 DROP FUNCTION IF EXISTS public.prevent_id_modification();
 DROP FUNCTION IF EXISTS public.handle_user_role_change();
 DROP FUNCTION IF EXISTS public.set_super_admin(UUID);
@@ -71,4 +73,3 @@ DROP FUNCTION IF EXISTS public.log_activity();
 DROP FUNCTION IF EXISTS public.log_audit_event();
 DROP FUNCTION IF EXISTS public.process_audit();
 DROP FUNCTION IF EXISTS public.update_timestamp();
-
