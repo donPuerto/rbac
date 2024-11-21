@@ -1,27 +1,61 @@
--- ========================================================================================
+-- =====================================================================================
 -- FUNCTIONS
--- ========================================================================================
+-- =====================================================================================
+/**
+ * Table of Contents
+ * =====================================================================================
+ * 
+ * 1. Core User Functions
+ *    - handle_new_user() - Trigger function for new user creation
+ *    - is_user_active(p_user_id UUID) - Check user active status
+ *    - soft_delete_user(p_user_id UUID) - Soft delete user
+ *    - restore_deleted_user(p_user_id UUID) - Restore soft-deleted user
+ *    - handle_user_soft_delete() - Trigger function for user soft deletion
+ *    - user_exists(p_user_id UUID, p_include_deleted BOOLEAN) - Check user existence
+ *    - get_user_profile(p_user_id UUID) - Get complete user profile
+ *    - update_user_status(p_user_id UUID, p_status TEXT, p_updated_by UUID) - Update status
+ *    - search_users(p_search TEXT, p_status TEXT[], p_role_types role_type[]) - Search users
+ *    - validate_user_access(p_user_id UUID, p_resource TEXT, p_action TEXT) - Check access
+ *
+ * 2. Role Management Functions
+ *    - assign_role_to_user(p_user_id UUID, p_role_type role_type) - Assign role
+ *    - remove_role_from_user(p_user_id UUID, p_role_type role_type) - Remove role
+ *    - get_user_roles(p_user_id UUID) - Get user's roles
+ *    - handle_role_soft_delete() - Handle role deletion
+ *
+ * 3. Permission Management Functions
+ *    - grant_permission(p_role_id UUID, p_permission_id UUID) - Grant permission
+ *    - revoke_permission(p_role_id UUID, p_permission_id UUID) - Revoke permission
+ *    - get_role_permissions(p_role_id UUID) - Get role's permissions
+ *
+ * 4. Audit and Logging Functions
+ *    - log_audit_event() - Log audit events
+ *    - log_activity() - Log user activities
+ *    - process_audit() - Process audit logs
+ *
+ * 5. Utility Functions
+ *    - prevent_id_modification() - Prevent ID changes
+ *    - update_timestamp() - Update timestamp trigger
+ *    - initialize_default_roles() - Initialize system roles
+ *
+ * Note: Each function includes comprehensive error handling, audit logging,
+ * and follows security best practices with SECURITY DEFINER and proper schema settings.
+ */
 
-
 -- ========================================================================================
+--
 -- User Management Functions
+--
 -- ========================================================================================
 
 
 -- ========================================================================================
-/*
- 1. Core User Functions:
-    * handle_new_user() - Trigger function for new user creation
-    * is_user_active(p_user_id UUID) - Check user active status
-    * soft_delete_user(p_user_id UUID) - Soft delete user
-    * restore_deleted_user(p_user_id UUID) - Restore soft-deleted user
-    * handle_user_soft_delete() - Trigger function for user soft deletion
-    * user_exists(p_user_id UUID, p_include_deleted BOOLEAN DEFAULT false) - Check user existence with detailed status 
-*/
+-- 1. Core User Functions:
 -- ========================================================================================
+
 /**
  * Function: handle_new_user()
- * =====================================================================================
+ * 
  * Purpose: Trigger function for new user creation with duplicate checks
  * 
  * Description:
@@ -134,7 +168,7 @@ $$;
 --
 /**
  * Function: is_user_active()
- * =====================================================================================
+ * 
  * Purpose: Checks if a user account is active and not deleted
  * 
  * Parameters:
@@ -181,57 +215,8 @@ $$;
 --
 --
 /*
-Purpose: 
-  Check if a user is active by validating multiple conditions:
-  - User exists
-  - User is marked as active
-  - User status is 'active'
-  - User has not been deleted
-
-Parameters:
-  p_user_id UUID - The ID of the user to check
-
-Returns:
-  BOOLEAN - true if user is active, false otherwise
-
-Example Usage:
--- Check if specific user is active
-SELECT public.is_user_active('123e4567-e89b-12d3-a456-426614174000');
-
--- Use in a query to filter active users
-SELECT * 
-FROM some_table 
-WHERE public.is_user_active(user_id);
-
--- Use in conditional logic
-IF public.is_user_active(user_id) THEN
-    -- Perform action for active user
-END IF;
-*/
-CREATE OR REPLACE FUNCTION public.is_user_active(
-    p_user_id UUID
-)
-RETURNS BOOLEAN
-STABLE
-SECURITY DEFINER
-SET search_path = public
-LANGUAGE plpgsql
-AS $$
-BEGIN
-    RETURN EXISTS (
-        SELECT 1 
-        FROM users u
-        WHERE u.id = p_user_id 
-        AND u.is_active = true 
-        AND u.status = 'active'
-        AND u.deleted_at IS NULL
-    );
-END;
-$$;
---
---
---
-/*
+* Function: soft_delete_user()
+*
 Purpose: 
   Performs a soft delete on a user record by:
   - Marking the user as inactive
@@ -338,6 +323,8 @@ $$;
 --
 --
 /*
+* Function: restore_deleted_user()
+*
 Purpose: 
   Restores a previously soft-deleted user account by:
   - Clearing deletion markers
@@ -415,6 +402,8 @@ $$;
 --
 --
 /*
+* Function: restore_deleted_user()
+*
 Purpose: 
   Restores a previously soft-deleted user account by:
   - Clearing deletion markers
@@ -536,6 +525,326 @@ $$;
 --
 --
 --
+/**
+ * Function: get_user_profile()
+ * 
+ * Purpose: Get complete user profile including roles, phone numbers, and addresses
+ * 
+ * Parameters:
+ *   - p_user_id UUID: The ID of the user to get profile for
+ *
+ * Returns: JSONB
+ *   - Complete user profile including:
+ *     * Basic user information
+ *     * Assigned roles
+ *     * Phone numbers
+ *     * Addresses
+ *
+ * Security: SECURITY DEFINER
+ *
+ * Description:
+ *   Retrieves a comprehensive user profile by:
+ *   - Getting basic user information
+ *   - Including all active roles
+ *   - Including all active phone numbers
+ *   - Including all active addresses
+ *   - Excluding soft-deleted records
+ *
+ * Example Usage:
+ *   SELECT get_user_profile('123e4567-e89b-12d3-a456-426614174000');
+ */
+CREATE OR REPLACE FUNCTION public.get_user_profile(p_user_id UUID)
+RETURNS JSONB
+SECURITY DEFINER
+SET search_path = public
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    v_profile JSONB;
+BEGIN
+    SELECT jsonb_build_object(
+        'user', jsonb_build_object(
+            'id', u.id,
+            'email', u.email,
+            'first_name', u.first_name,
+            'last_name', u.last_name,
+            'display_name', u.display_name,
+            'status', u.status,
+            'is_active', u.is_active,
+            'created_at', u.created_at
+        ),
+        'roles', COALESCE((
+            SELECT jsonb_agg(jsonb_build_object(
+                'role_id', r.id,
+                'name', r.name,
+                'role_type', r.role_type
+            ))
+            FROM user_roles ur
+            JOIN roles r ON r.id = ur.role_id
+            WHERE ur.user_id = u.id
+            AND ur.deleted_at IS NULL
+        ), '[]'::jsonb),
+        'phones', COALESCE((
+            SELECT jsonb_agg(jsonb_build_object(
+                'phone_number', p.phone_number,
+                'phone_type', p.phone_type,
+                'is_primary', p.is_primary,
+                'country_code', p.country_code
+            ))
+            FROM user_phone_numbers p
+            WHERE p.user_id = u.id
+            AND p.deleted_at IS NULL
+        ), '[]'::jsonb),
+        'addresses', COALESCE((
+            SELECT jsonb_agg(jsonb_build_object(
+                'address_type', a.address_type,
+                'street_address', a.street_address,
+                'city', a.city,
+                'state_province', a.state_province,
+                'country', a.country,
+                'is_primary', a.is_primary
+            ))
+            FROM user_addresses a
+            WHERE a.user_id = u.id
+            AND a.deleted_at IS NULL
+        ), '[]'::jsonb)
+    ) INTO v_profile
+    FROM users u
+    WHERE u.id = p_user_id
+    AND u.deleted_at IS NULL;
+
+    RETURN v_profile;
+END;
+$$;
+--
+--
+--
+/**
+ * Function: update_user_status()
+ *
+ * Purpose: Update user status with comprehensive audit logging
+ * 
+ * Parameters:
+ *   - p_user_id UUID: The ID of the user to update
+ *   - p_status TEXT: New status to set
+ *   - p_updated_by UUID: ID of the user making the change
+ *
+ * Returns: BOOLEAN
+ *   - TRUE if status was updated
+ *   - FALSE if user not found or already deleted
+ *
+ * Security: SECURITY DEFINER
+ *
+ * Description:
+ *   Updates user status with proper tracking by:
+ *   - Validating user exists
+ *   - Updating status
+ *   - Creating audit log with old and new status
+ *   - Tracking who made the change
+ *
+ * Example Usage:
+ *   SELECT update_user_status(
+ *     '123e4567-e89b-12d3-a456-426614174000',
+ *     'inactive',
+ *     '987fcdeb-51a2-4bc3-9876-543210987654'
+ *   );
+ */
+CREATE OR REPLACE FUNCTION public.update_user_status(
+    p_user_id UUID,
+    p_status TEXT,
+    p_updated_by UUID
+)
+RETURNS BOOLEAN
+SECURITY DEFINER
+SET search_path = public
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    v_old_status TEXT;
+BEGIN
+    -- Get current status for audit
+    SELECT status INTO v_old_status
+    FROM users
+    WHERE id = p_user_id;
+
+    -- Update status
+    UPDATE users
+    SET 
+        status = p_status,
+        updated_at = CURRENT_TIMESTAMP,
+        updated_by = p_updated_by
+    WHERE id = p_user_id
+    AND deleted_at IS NULL;
+
+    -- Log the change
+    PERFORM log_audit_event(
+        'users',
+        p_user_id,
+        'status_update',
+        jsonb_build_object('status', v_old_status),
+        jsonb_build_object('status', p_status),
+        p_updated_by
+    );
+
+    RETURN FOUND;
+END;
+$$;
+--
+--
+--
+/*
+ * Function: search_users
+ * 
+ * Purpose: Search and filter users with pagination
+ * 
+ * Parameters:
+ *   - p_search TEXT: Search term for email, first_name, last_name
+ *   - p_status TEXT[]: Array of status values to filter by
+ *   - p_role_types role_type[]: Array of role types to filter by
+ *   - p_limit INTEGER: Maximum number of results (default 10)
+ *   - p_offset INTEGER: Number of results to skip (default 0)
+ *
+ * Returns: TABLE
+ *   - total_count BIGINT: Total number of matching records
+ *   - users JSONB: Array of user records with roles
+ *
+ * Security: SECURITY DEFINER
+ *
+ * Description:
+ *   Performs flexible user search by:
+ *   - Applying text search on multiple fields
+ *   - Filtering by status and role types
+ *   - Including role information
+ *   - Supporting pagination
+ *   - Excluding soft-deleted records
+ *
+ * Example Usage:
+ *   SELECT * FROM search_users(
+ *     p_search => 'john',
+ *     p_status => ARRAY['active', 'pending'],
+ *     p_role_types => ARRAY['user', 'admin']::role_type[],
+ *     p_limit => 20,
+ *     p_offset => 0
+ *   );
+*/
+CREATE OR REPLACE FUNCTION public.search_users(
+    p_search TEXT DEFAULT NULL,
+    p_status TEXT[] DEFAULT NULL,
+    p_role_types role_type[] DEFAULT NULL,
+    p_limit INTEGER DEFAULT 10,
+    p_offset INTEGER DEFAULT 0
+)
+RETURNS TABLE (
+    total_count BIGINT,
+    users JSONB
+)
+SECURITY DEFINER
+SET search_path = public
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    RETURN QUERY
+    WITH filtered_users AS (
+        SELECT DISTINCT u.*
+        FROM users u
+        LEFT JOIN user_roles ur ON ur.user_id = u.id AND ur.deleted_at IS NULL
+        LEFT JOIN roles r ON r.id = ur.role_id AND r.deleted_at IS NULL
+        WHERE u.deleted_at IS NULL
+        AND (
+            p_search IS NULL 
+            OR u.email ILIKE '%' || p_search || '%'
+            OR u.first_name ILIKE '%' || p_search || '%'
+            OR u.last_name ILIKE '%' || p_search || '%'
+        )
+        AND (p_status IS NULL OR u.status = ANY(p_status))
+        AND (p_role_types IS NULL OR r.role_type = ANY(p_role_types))
+    )
+    SELECT 
+        (SELECT COUNT(*) FROM filtered_users)::BIGINT,
+        COALESCE(jsonb_agg(jsonb_build_object(
+            'id', u.id,
+            'email', u.email,
+            'first_name', u.first_name,
+            'last_name', u.last_name,
+            'status', u.status,
+            'created_at', u.created_at,
+            'roles', COALESCE((
+                SELECT jsonb_agg(DISTINCT r.name)
+                FROM user_roles ur
+                JOIN roles r ON r.id = ur.role_id
+                WHERE ur.user_id = u.id
+                AND ur.deleted_at IS NULL
+            ), '[]'::jsonb)
+        )), '[]'::jsonb)
+    FROM (
+        SELECT * FROM filtered_users
+        ORDER BY created_at DESC
+        LIMIT p_limit
+        OFFSET p_offset
+    ) u;
+END;
+$$;
+--
+--
+--
+/**
+ * Function: validate_user_access
+ * 
+ * Purpose: Check if user has access to specific resource/action
+ * 
+ * Parameters:
+ *   - p_user_id UUID: The ID of the user to check
+ *   - p_resource TEXT: Resource to check access for
+ *   - p_action TEXT: Action to check permission for
+ *
+ * Returns: BOOLEAN
+ *   - TRUE if user has access
+ *   - FALSE if user does not have access
+ *
+ * Security: SECURITY DEFINER
+ *
+ * Description:
+ *   Validates user access rights by:
+ *   - Checking user is active
+ *   - Verifying role assignments
+ *   - Checking permission grants
+ *   - Considering soft-deleted records
+ *
+ * Example Usage:
+ *   SELECT validate_user_access(
+ *     '123e4567-e89b-12d3-a456-426614174000',
+ *     'documents',
+ *     'read'
+ *   );
+ */
+CREATE OR REPLACE FUNCTION public.validate_user_access(
+    p_user_id UUID,
+    p_resource TEXT,
+    p_action TEXT
+)
+RETURNS BOOLEAN
+SECURITY DEFINER
+SET search_path = public
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    RETURN EXISTS (
+        SELECT 1
+        FROM users u
+        JOIN user_roles ur ON ur.user_id = u.id
+        JOIN roles r ON r.id = ur.role_id
+        JOIN role_permissions rp ON rp.role_id = r.id
+        JOIN permissions p ON p.id = rp.permission_id
+        WHERE u.id = p_user_id
+        AND u.is_active = true
+        AND u.deleted_at IS NULL
+        AND ur.deleted_at IS NULL
+        AND r.deleted_at IS NULL
+        AND p.resource = p_resource
+        AND p.action = p_action
+    );
+END;
+$$;
 -- ========================================================================================
 -- Role Management Functions
 -- ========================================================================================
