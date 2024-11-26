@@ -18,10 +18,18 @@
  *    - validate_user_access(p_user_id UUID, p_resource TEXT, p_action TEXT) - Check access
  *
  * 2. Role Management Functions
- *    - assign_role_to_user(p_user_id UUID, p_role_type role_type) - Assign role
- *    - remove_role_from_user(p_user_id UUID, p_role_type role_type) - Remove role
- *    - get_user_roles(p_user_id UUID) - Get user's roles
- *    - handle_role_soft_delete() - Handle role deletion
+ *    - manage_user_role(p_user_id UUID, p_role_type role_type, p_managed_by UUID, p_action TEXT)
+ *      -- Unified function for role assignment/revocation with hierarchy validation
+ *    - get_user_roles(p_user_id UUID)
+ *      -- Retrieve user's active roles with hierarchy and metadata
+ *    - check_user_role(p_user_id UUID, p_role_type role_type, p_check_higher_roles BOOLEAN)
+ *      -- Validate user role with hierarchy support
+ *    - handle_role_soft_delete()
+ *      -- Manage role deletion with cascade and audit
+ *    - get_role_hierarchy_level(p_role_type role_type)
+ *      -- Convert role type to numeric hierarchy level
+ *    - handle_user_role_change()
+ *      -- Trigger for role changes with audit logging
  *
  * 3. Permission Management Functions
  *    - grant_permission(p_role_id UUID, p_permission_id UUID) - Grant permission
@@ -853,206 +861,124 @@ $$;
 
 /**
  * Function: manage_user_role()
- * 
- * Purpose: Unified function to assign or revoke roles with hierarchy validation
- * 
+ *
+ * Purpose: Unified function to assign or revoke user roles with hierarchy validation
+ *
  * Parameters:
- *   - p_user_id UUID: The target user to manage role for
- *   - p_role_type role_type: The role type to assign/revoke
- *   - p_managed_by UUID: The user performing the action
- *   - p_action TEXT: 'assign' or 'revoke' (default: 'assign')
+ *   @p_user_id UUID - The user to manage roles for
+ *   @p_role_type role_type - The role type to assign/revoke
+ *   @p_managed_by UUID - The user performing the action
+ *   @p_action TEXT - Either 'assign' or 'revoke'
  *
  * Returns: BOOLEAN
- *   - TRUE if role management successful
- *   - FALSE if operation fails
- *
- * Security: SECURITY DEFINER
- *
- * Description:
- *   Manages role assignments with proper validation:
- *   - Validates user existence
- *   - Checks manager's privileges
- *   - Maintains role hierarchy
- *   - Handles role assignment/revocation
- *   - Creates audit logs
- *
- * Example Usage:
- *   SELECT manage_user_role(
- *     '123e4567-e89b-12d3-a456-426614174000',
- *     'editor',
- *     '987fcdeb-51a2-4bc3-9876-543210987654',
- *     'assign'
- *   );
+ *   - TRUE if operation successful
+ *   - FALSE if no changes made
  */
---
---
---
 CREATE OR REPLACE FUNCTION public.manage_user_role(
     p_user_id UUID,
     p_role_type role_type,
     p_managed_by UUID,
-    p_action TEXT DEFAULT 'assign'
+    p_action TEXT
 )
-RETURNS boolean
+RETURNS BOOLEAN
 LANGUAGE plpgsql
 SECURITY DEFINER
+SET search_path = public
 AS $$
 DECLARE
     v_role_id UUID;
-    v_manager_role_level INTEGER;
-    v_target_role_level INTEGER;
-    v_manager_highest_role role_type;
-    v_current_timestamp TIMESTAMPTZ := now();
+    v_manager_level INTEGER;
+    v_target_level INTEGER;
+    v_current_timestamp TIMESTAMPTZ;
 BEGIN
-    -- Validate parameters
+    -- Input validation
     IF p_action NOT IN ('assign', 'revoke') THEN
         RAISE EXCEPTION 'Invalid action. Must be either ''assign'' or ''revoke''';
     END IF;
 
-    -- Validate user existence
-    IF NOT EXISTS (SELECT 1 FROM users WHERE id = p_user_id AND deleted_at IS NULL) THEN
-        RAISE EXCEPTION 'Target user does not exist or is deleted';
-    END IF;
-
-    -- Get manager's highest role
-    SELECT r.role_type INTO v_manager_highest_role
-    FROM user_roles ur
-    JOIN roles r ON r.id = ur.role_id
-    WHERE ur.user_id = p_managed_by
-    AND ur.deleted_at IS NULL
-    AND ur.is_active = true
-    ORDER BY get_role_hierarchy_level(r.role_type) DESC
-    LIMIT 1;
-
-    -- Validate manager's role
-    IF v_manager_highest_role IS NULL THEN
-        RAISE EXCEPTION 'Manager has no active roles';
-    END IF;
-
-    -- Get hierarchy levels
-    v_manager_role_level := get_role_hierarchy_level(v_manager_highest_role);
-    v_target_role_level := get_role_hierarchy_level(p_role_type);
-
-    -- Check if manager has sufficient privileges
-    IF v_manager_role_level <= v_target_role_level THEN
-        RAISE EXCEPTION 'Insufficient privileges. Your role level: %, Target role level: %', 
-            v_manager_role_level, v_target_role_level;
-    END IF;
-
-    -- Get role ID
+    -- Get role ID and validate role existence
     SELECT id INTO v_role_id
     FROM public.roles
     WHERE role_type = p_role_type
-    AND deleted_at IS NULL;
+    AND deleted_at IS NULL
+    AND is_active = true;
 
-    -- Check if role exists
     IF v_role_id IS NULL THEN
-        RAISE EXCEPTION 'Role % does not exist', p_role_type;
+        RAISE EXCEPTION 'Invalid role type or role is inactive';
     END IF;
 
-    -- Handle role management based on action
-    IF p_action = 'assign' THEN
-        INSERT INTO public.user_roles (
-            user_id,
-            role_id,
-            assigned_by,
-            assigned_at,
-            created_by,
-            created_at,
-            is_active
-        )
-        VALUES (
-            p_user_id,
-            v_role_id,
-            p_managed_by,
-            v_current_timestamp,
-            p_managed_by,
-            v_current_timestamp,
-            true
-        )
-        ON CONFLICT (user_id, role_id, deleted_at) 
-        DO UPDATE SET
-            updated_at = v_current_timestamp,
-            updated_by = p_managed_by,
-            is_active = true,
-            deleted_at = NULL,
-            deleted_by = NULL;
-    ELSE
-        UPDATE public.user_roles
-        SET 
-            deleted_at = v_current_timestamp,
-            deleted_by = p_managed_by,
-            updated_at = v_current_timestamp,
-            updated_by = p_managed_by,
-            is_active = false
-        WHERE user_id = p_user_id
-        AND role_id = v_role_id
-        AND deleted_at IS NULL;
+    -- Get hierarchy levels
+    v_manager_level := get_role_hierarchy_level(
+        (SELECT role_type FROM public.roles r
+         JOIN public.user_roles ur ON ur.role_id = r.id
+         WHERE ur.user_id = p_managed_by
+         AND ur.is_active = true
+         AND ur.deleted_at IS NULL
+         ORDER BY get_role_hierarchy_level(r.role_type) DESC
+         LIMIT 1)
+    );
+    v_target_level := get_role_hierarchy_level(p_role_type);
+
+    -- Validate manager has sufficient privileges
+    IF v_manager_level <= v_target_level THEN
+        RAISE EXCEPTION 'Insufficient privileges to manage this role level';
     END IF;
 
-    -- Log in audit_logs
-    INSERT INTO audit_logs (
-        table_name,
-        record_id,
-        action,
-        old_data,
-        new_data,
-        performed_by,
-        performed_at
-    )
-    VALUES (
-        'user_roles',
-        p_user_id,
-        p_action || '_role',
-        NULL,
-        jsonb_build_object(
-            'role_type', p_role_type,
-            'managed_by', p_managed_by,
-            'action', p_action
-        ),
-        p_managed_by,
-        v_current_timestamp
-    );
+    -- Get current timestamp for consistent timing
+    v_current_timestamp := now();
 
-    -- Log in user_activities
-    INSERT INTO user_activities (
-        user_id,
-        activity_type,
-        description,
-        details
-    )
-    VALUES (
-        p_user_id,
-        p_action || '_role',
-        format('Role %s %s by %s', p_role_type, p_action, p_managed_by),
-        jsonb_build_object(
-            'role_type', p_role_type,
-            'managed_by', p_managed_by,
-            'action', p_action
-        )
-    );
+    CASE p_action
+        WHEN 'assign' THEN
+            -- Check if role is already assigned and active
+            IF EXISTS (
+                SELECT 1 FROM public.user_roles
+                WHERE user_id = p_user_id
+                AND role_id = v_role_id
+                AND is_active = true
+                AND deleted_at IS NULL
+            ) THEN
+                RETURN FALSE;
+            END IF;
 
-    RETURN true;
+            -- Insert new role assignment
+            INSERT INTO public.user_roles (
+                user_id,
+                role_id,
+                assigned_by,
+                assigned_at,
+                is_active,
+                created_by,
+                updated_by
+            )
+            VALUES (
+                p_user_id,
+                v_role_id,
+                p_managed_by,
+                v_current_timestamp,
+                true,
+                p_managed_by,
+                p_managed_by
+            );
 
-EXCEPTION WHEN OTHERS THEN
-    -- Log error in user_activities
-    INSERT INTO user_activities (
-        user_id,
-        activity_type,
-        description,
-        details
-    )
-    VALUES (
-        p_managed_by,
-        'role_management_error',
-        format('Error %s role %s: %s', p_action, p_role_type, SQLERRM),
-        jsonb_build_object(
-            'error', SQLERRM,
-            'role_type', p_role_type,
-            'target_user', p_user_id
-        )
-    );
-    RETURN false;
+        WHEN 'revoke' THEN
+            -- Soft delete and deactivate existing role
+            UPDATE public.user_roles
+            SET is_active = false,
+                deleted_at = v_current_timestamp,
+                deleted_by = p_managed_by,
+                updated_at = v_current_timestamp,
+                updated_by = p_managed_by
+            WHERE user_id = p_user_id
+            AND role_id = v_role_id
+            AND is_active = true
+            AND deleted_at IS NULL;
+
+            IF NOT FOUND THEN
+                RETURN FALSE;
+            END IF;
+    END CASE;
+
+    RETURN TRUE;
 END;
 $$;
 --
@@ -1060,127 +986,146 @@ $$;
 --
 /**
  * Function: get_user_roles()
- * 
- * Purpose: Get all active roles for a user with hierarchy information
- * 
+ *
+ * Purpose: Retrieve all active roles for a user with hierarchy information
+ *
  * Parameters:
- *   - p_user_id UUID: The user to get roles for
+ *   @p_user_id UUID - The user to get roles for
  *
- * Returns: TABLE
- *   - role_type role_type: The type of role
- *   - role_name TEXT: Display name of the role
- *   - assigned_at TIMESTAMPTZ: When the role was assigned
- *   - assigned_by UUID: Who assigned the role
- *   - hierarchy_level INTEGER: Role's position in hierarchy
- *
- * Security: SECURITY DEFINER
- *
- * Description:
- *   Retrieves all active roles for a user:
- *   - Excludes soft-deleted roles
- *   - Orders by hierarchy level
- *   - Includes assignment details
- *   - Provides hierarchy information
- *
- * Example Usage:
- *   SELECT * FROM get_user_roles('123e4567-e89b-12d3-a456-426614174000');
+ * Returns: TABLE with role information and metadata
  */
 CREATE OR REPLACE FUNCTION public.get_user_roles(
     p_user_id UUID
 )
 RETURNS TABLE (
+    role_id UUID,
     role_type role_type,
     role_name TEXT,
+    description TEXT,
+    hierarchy_level INTEGER,
+    is_system_role BOOLEAN,
     assigned_at TIMESTAMPTZ,
     assigned_by UUID,
-    hierarchy_level INTEGER
+    assigned_by_name TEXT
 )
 LANGUAGE plpgsql
 SECURITY DEFINER
+SET search_path = public
 AS $$
 BEGIN
     RETURN QUERY
     SELECT 
+        r.id AS role_id,
         r.role_type,
-        r.name,
+        r.name AS role_name,
+        r.description,
+        get_role_hierarchy_level(r.role_type) AS hierarchy_level,
+        r.is_system_role,
         ur.assigned_at,
         ur.assigned_by,
-        get_role_hierarchy_level(r.role_type)
+        (SELECT display_name FROM public.users WHERE id = ur.assigned_by) AS assigned_by_name
     FROM public.user_roles ur
     JOIN public.roles r ON r.id = ur.role_id
     WHERE ur.user_id = p_user_id
-    AND ur.deleted_at IS NULL
     AND ur.is_active = true
-    AND r.deleted_at IS NULL
+    AND ur.deleted_at IS NULL
     AND r.is_active = true
-    ORDER BY get_role_hierarchy_level(r.role_type) DESC;
+    AND r.deleted_at IS NULL
+    ORDER BY hierarchy_level DESC, r.name;
 END;
 $$;
 --
 --
 --
 /**
+ * Function: check_user_role()
+ *
+ * Purpose: Validate if a user has a specific role or higher level role
+ */
+CREATE OR REPLACE FUNCTION public.check_user_role(
+    p_user_id UUID,
+    p_role_type role_type,
+    p_check_higher_roles BOOLEAN DEFAULT true
+)
+RETURNS BOOLEAN
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+    RETURN EXISTS (
+        SELECT 1
+        FROM public.user_roles ur
+        JOIN public.roles r ON r.id = ur.role_id
+        WHERE ur.user_id = p_user_id
+        AND ur.deleted_at IS NULL
+        AND r.deleted_at IS NULL
+        AND ur.is_active = true
+        AND r.is_active = true
+        AND (
+            CASE WHEN p_check_higher_roles THEN
+                get_role_hierarchy_level(r.role_type) >= get_role_hierarchy_level(p_role_type)
+            ELSE
+                r.role_type = p_role_type
+            END
+        )
+    );
+END;
+$$;
+/**
  * Function: handle_role_soft_delete()
- * 
- * Purpose: Manages the soft deletion of roles and related cleanup
- * 
- * Description:
- *   Trigger function that handles role deletion:
- *   - Deactivates all user assignments for the role
- *   - Deactivates all permission assignments
- *   - Creates audit logs for the changes
- *   - Maintains referential integrity
  *
- * Trigger: AFTER UPDATE ON roles
- * Returns: TRIGGER
- * Security: SECURITY DEFINER
- *
- * Example Usage:
- *   Automatically triggered when a role is soft-deleted:
- *   UPDATE roles SET deleted_at = now() WHERE id = 'role_id';
+ * Purpose: Manage role deletion with cascade and cleanup
  */
 CREATE OR REPLACE FUNCTION public.handle_role_soft_delete()
 RETURNS TRIGGER
+LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = public
-LANGUAGE plpgsql
 AS $$
+DECLARE
+    v_current_user UUID;
 BEGIN
-    -- Deactivate all user assignments for this role
+    -- Get current user
+    v_current_user := auth.uid();
+    
+    -- Prevent deletion of system roles
+    IF OLD.is_system_role THEN
+        RAISE EXCEPTION 'Cannot delete system roles';
+    END IF;
+
+    -- Soft delete related user_roles
     UPDATE public.user_roles
-    SET 
+    SET deleted_at = now(),
+        deleted_by = v_current_user,
         is_active = false,
         updated_at = now(),
-        updated_by = NEW.deleted_by,
-        deleted_at = NEW.deleted_at,
-        deleted_by = NEW.deleted_by
-    WHERE role_id = NEW.id
+        updated_by = v_current_user
+    WHERE role_id = OLD.id
     AND deleted_at IS NULL;
 
-    -- Deactivate all permission assignments for this role
+    -- Soft delete related role_permissions
     UPDATE public.role_permissions
-    SET 
+    SET deleted_at = now(),
+        deleted_by = v_current_user,
         is_active = false,
         updated_at = now(),
-        updated_by = NEW.deleted_by,
-        deleted_at = NEW.deleted_at,
-        deleted_by = NEW.deleted_by
-    WHERE role_id = NEW.id
+        updated_by = v_current_user
+    WHERE role_id = OLD.id
     AND deleted_at IS NULL;
 
-    -- Log the soft delete
-    PERFORM log_activity(
-        NEW.deleted_by,
+    -- Log the deletion
+    PERFORM log_audit_event(
         'role_deleted',
-        format('Role %s soft deleted', NEW.name),
+        OLD.id,
         jsonb_build_object(
-            'role_name', NEW.name,
-            'deleted_by', NEW.deleted_by,
-            'deleted_at', NEW.deleted_at
+            'role_name', OLD.name,
+            'role_type', OLD.role_type,
+            'is_system_role', OLD.is_system_role
         )
     );
 
-    RETURN NEW;
+    RETURN OLD;
 END;
 $$;
 --
@@ -1238,83 +1183,29 @@ $$;
 --
 --
 --
--- =====================================================================================
--- Function: check_user_role
--- Purpose: Check if a user has a specific role or higher role
--- Parameters:
---   - p_user_id: The user to check
---   - p_role_type: The role type to check for
---   - p_check_higher_roles: Whether to include higher roles in check
--- Returns: boolean indicating if user has role
--- Note: This replaces user_has_role
--- =====================================================================================
-CREATE OR REPLACE FUNCTION public.check_user_role(
-    p_user_id UUID,
-    p_role_type role_type,
-    p_check_higher_roles BOOLEAN DEFAULT true
-)
-RETURNS boolean
-LANGUAGE plpgsql
-SECURITY DEFINER
-AS $$
-BEGIN
-    RETURN EXISTS (
-        SELECT 1
-        FROM public.user_roles ur
-        JOIN public.roles r ON r.id = ur.role_id
-        WHERE ur.user_id = p_user_id
-        AND ur.deleted_at IS NULL
-        AND r.deleted_at IS NULL
-        AND ur.is_active = true
-        AND r.is_active = true
-        AND (
-            CASE WHEN p_check_higher_roles THEN
-                get_role_hierarchy_level(r.role_type) >= get_role_hierarchy_level(p_role_type)
-            ELSE
-                r.role_type = p_role_type
-            END
-        )
-    );
-END;
-$$;
---
---
---
 /**
  * Function: handle_user_role_change()
- * 
- * Purpose: Trigger function to manage role assignment changes
- * 
- * Trigger: AFTER INSERT OR UPDATE ON user_roles
- * Returns: TRIGGER
- * Security: SECURITY DEFINER
  *
- * Description:
- *   Manages role assignment changes:
- *   - Logs role assignments
- *   - Tracks role deactivations
- *   - Maintains audit trail
- *   - Records assignment metadata
- *
- * Example Usage:
- *   Automatically triggered on role changes:
- *   CREATE TRIGGER on_user_role_change
- *   AFTER INSERT OR UPDATE ON user_roles
- *   FOR EACH ROW EXECUTE FUNCTION handle_user_role_change();
+ * Purpose: Trigger function for role assignment changes
  */
 CREATE OR REPLACE FUNCTION public.handle_user_role_change()
 RETURNS TRIGGER
+LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = public
-LANGUAGE plpgsql
 AS $$
 DECLARE
     v_role_name TEXT;
+    v_user_name TEXT;
 BEGIN
-    -- Get role name for logging
+    -- Get role and user information for logging
     SELECT name INTO v_role_name
     FROM public.roles
     WHERE id = NEW.role_id;
+
+    SELECT display_name INTO v_user_name
+    FROM public.users
+    WHERE id = NEW.user_id;
 
     -- Log role change activity
     PERFORM log_activity(
@@ -1324,7 +1215,9 @@ BEGIN
             WHEN TG_OP = 'UPDATE' AND NEW.is_active = false THEN 'role_deactivated'
             ELSE 'role_updated'
         END,
-        format('User role %s %s', v_role_name, 
+        format('User %s: role %s %s', 
+            v_user_name,
+            v_role_name,
             CASE 
                 WHEN TG_OP = 'INSERT' THEN 'assigned'
                 WHEN TG_OP = 'UPDATE' AND NEW.is_active = false THEN 'deactivated'
@@ -1334,6 +1227,8 @@ BEGIN
         jsonb_build_object(
             'role_id', NEW.role_id,
             'role_name', v_role_name,
+            'user_id', NEW.user_id,
+            'user_name', v_user_name,
             'assigned_by', NEW.assigned_by,
             'operation', TG_OP,
             'is_active', NEW.is_active
@@ -1347,280 +1242,62 @@ $$;
 --
 --
 /**
- * Function: check_role_type()
- * 
- * Purpose: Validate role types and check role hierarchy
- * 
- * Parameters:
- *   - p_role_type role_type: Role type to check
- *   - p_user_id UUID: Optional user to check against (default: current user)
- *   - p_include_higher_roles BOOLEAN: Include higher roles in check
+ * Function: get_role_assignments_history()
  *
- * Returns: BOOLEAN
- *   - TRUE if role type is valid and user has required level
- *   - FALSE otherwise
- *
- * Security: SECURITY DEFINER
- *
- * Description:
- *   Comprehensive role validation:
- *   - Validates role type existence
- *   - Checks user's role level
- *   - Supports hierarchy validation
- *   - Handles current user context
- *
- * Example Usage:
- *   SELECT check_role_type('admin'::role_type);  -- Check current user
- *   SELECT check_role_type('editor'::role_type, user_id, true);  -- Check specific user
+ * Purpose: Retrieve role assignment history for audit and tracking
  */
-CREATE OR REPLACE FUNCTION public.check_role_type(
-    p_role_type role_type,
-    p_user_id UUID DEFAULT NULL,
-    p_include_higher_roles BOOLEAN DEFAULT true
-)
-RETURNS BOOLEAN
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path = public
-AS $$
-DECLARE
-    v_user_id UUID;
-    v_requested_level INTEGER;
-BEGIN
-    -- Determine which user to check
-    v_user_id := COALESCE(p_user_id, auth.uid());
-    
-    -- If no user ID available, return false
-    IF v_user_id IS NULL THEN
-        RETURN false;
-    END IF;
-
-    -- Get the hierarchy level of the requested role
-    v_requested_level := get_role_hierarchy_level(p_role_type);
-
-    -- Check for the role, considering hierarchy if requested
-    RETURN EXISTS (
-        SELECT 1
-        FROM public.user_roles ur
-        JOIN public.roles r ON r.id = ur.role_id
-        WHERE ur.user_id = v_user_id
-        AND ur.deleted_at IS NULL
-        AND r.deleted_at IS NULL
-        AND ur.is_active = true
-        AND r.is_active = true
-        AND (
-            CASE 
-                WHEN p_include_higher_roles THEN
-                    get_role_hierarchy_level(r.role_type) >= v_requested_level
-                ELSE
-                    r.role_type = p_role_type
-            END
-        )
-    );
-END;
-$$;
---
---
---
--- =====================================================================================
--- Function: check_user_role
--- Purpose: Check if a user has a specific role or higher role level
--- Parameters:
---   - p_user_id: The user to check
---   - p_role_type: The role type to verify
---   - p_check_higher_roles: If true, also check for higher roles
--- Returns: BOOLEAN
---   - TRUE if user has the role or higher (if checking higher roles)
---   - FALSE otherwise
--- Security: SECURITY DEFINER
--- Description:
---   Validates user role assignments:
---   - Checks for exact role match
---   - Optionally checks for higher roles
---   - Considers only active roles
---   - Excludes soft-deleted records
--- Example Usage:
---   SELECT check_user_role(
---     '123e4567-e89b-12d3-a456-426614174000',
---     'editor'::role_type,
---     true
---   );
- */
-CREATE OR REPLACE FUNCTION public.check_user_role(
+CREATE OR REPLACE FUNCTION public.get_role_assignments_history(
     p_user_id UUID,
-    p_role_type role_type,
-    p_check_higher_roles BOOLEAN DEFAULT false
+    p_from_date TIMESTAMPTZ DEFAULT NULL,
+    p_to_date TIMESTAMPTZ DEFAULT NULL
 )
-RETURNS BOOLEAN
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path = public
-AS $$
-BEGIN
-    RETURN EXISTS (
-        SELECT 1
-        FROM public.user_roles ur
-        JOIN public.roles r ON r.id = ur.role_id
-        WHERE ur.user_id = p_user_id
-        AND ur.deleted_at IS NULL
-        AND r.deleted_at IS NULL
-        AND ur.is_active = true
-        AND r.is_active = true
-        AND (
-            CASE WHEN p_check_higher_roles THEN
-                get_role_hierarchy_level(r.role_type) >= get_role_hierarchy_level(p_role_type)
-            ELSE
-                r.role_type = p_role_type
-            END
-        )
-    );
-END;
-$$;
-
-/**
- * Function: handle_user_role_change()
- * 
- * Purpose: Trigger function to manage role assignment changes
- * 
- * Trigger: AFTER INSERT OR UPDATE ON user_roles
- * Returns: TRIGGER
- * Security: SECURITY DEFINER
- *
- * Description:
- *   Manages role assignment changes:
- *   - Logs role assignments
- *   - Tracks role deactivations
- *   - Maintains audit trail
- *   - Records assignment metadata
- *
- * Example Usage:
- *   Automatically triggered on role changes:
- *   CREATE TRIGGER on_user_role_change
- *   AFTER INSERT OR UPDATE ON user_roles
- *   FOR EACH ROW EXECUTE FUNCTION handle_user_role_change();
- */
-CREATE OR REPLACE FUNCTION public.handle_user_role_change()
-RETURNS TRIGGER
-SECURITY DEFINER
-SET search_path = public
-LANGUAGE plpgsql
-AS $$
-DECLARE
-    v_role_name TEXT;
-BEGIN
-    -- Get role name for logging
-    SELECT name INTO v_role_name
-    FROM public.roles
-    WHERE id = NEW.role_id;
-
-    -- Log role change activity
-    PERFORM log_activity(
-        NEW.user_id,
-        CASE 
-            WHEN TG_OP = 'INSERT' THEN 'role_assigned'
-            WHEN TG_OP = 'UPDATE' AND NEW.is_active = false THEN 'role_deactivated'
-            ELSE 'role_updated'
-        END,
-        format('User role %s %s', v_role_name, 
-            CASE 
-                WHEN TG_OP = 'INSERT' THEN 'assigned'
-                WHEN TG_OP = 'UPDATE' AND NEW.is_active = false THEN 'deactivated'
-                ELSE 'updated'
-            END
-        ),
-        jsonb_build_object(
-            'role_id', NEW.role_id,
-            'role_name', v_role_name,
-            'assigned_by', NEW.assigned_by,
-            'operation', TG_OP,
-            'is_active', NEW.is_active
-        )
-    );
-
-    RETURN NEW;
-END;
-$$;
-
-/**
- * Function: check_role_type()
- * 
- * Purpose: Validate role types and check role hierarchy
- * 
- * Parameters:
- *   - p_role_type role_type: Role type to check
- *   - p_user_id UUID: Optional user to check against (default: current user)
- *   - p_include_higher_roles BOOLEAN: Include higher roles in check
- *
- * Returns: BOOLEAN
- *   - TRUE if role type is valid and user has required level
- *   - FALSE otherwise
- *
- * Security: SECURITY DEFINER
- *
- * Description:
- *   Comprehensive role validation:
- *   - Validates role type existence
- *   - Checks user's role level
- *   - Supports hierarchy validation
- *   - Handles current user context
- *
- * Example Usage:
- *   SELECT check_role_type('admin'::role_type);  -- Check current user
- *   SELECT check_role_type('editor'::role_type, user_id, true);  -- Check specific user
- */
-CREATE OR REPLACE FUNCTION public.check_role_type(
-    p_role_type role_type,
-    p_user_id UUID DEFAULT NULL,
-    p_include_higher_roles BOOLEAN DEFAULT true
+RETURNS TABLE (
+    role_name TEXT,
+    role_type role_type,
+    assigned_at TIMESTAMPTZ,
+    assigned_by_name TEXT,
+    revoked_at TIMESTAMPTZ,
+    revoked_by_name TEXT,
+    is_active BOOLEAN
 )
-RETURNS BOOLEAN
 LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = public
 AS $$
-DECLARE
-    v_user_id UUID;
-    v_requested_level INTEGER;
 BEGIN
-    -- Determine which user to check
-    v_user_id := COALESCE(p_user_id, auth.uid());
-    
-    -- If no user ID available, return false
-    IF v_user_id IS NULL THEN
-        RETURN false;
-    END IF;
-
-    -- Get the hierarchy level of the requested role
-    v_requested_level := get_role_hierarchy_level(p_role_type);
-
-    -- Check for the role, considering hierarchy if requested
-    RETURN EXISTS (
-        SELECT 1
-        FROM public.user_roles ur
-        JOIN public.roles r ON r.id = ur.role_id
-        WHERE ur.user_id = v_user_id
-        AND ur.deleted_at IS NULL
-        AND r.deleted_at IS NULL
-        AND ur.is_active = true
-        AND r.is_active = true
-        AND (
-            CASE 
-                WHEN p_include_higher_roles THEN
-                    get_role_hierarchy_level(r.role_type) >= v_requested_level
-                ELSE
-                    r.role_type = p_role_type
-            END
-        )
-    );
+    RETURN QUERY
+    SELECT 
+        r.name AS role_name,
+        r.role_type,
+        ur.assigned_at,
+        (SELECT display_name FROM users WHERE id = ur.assigned_by) AS assigned_by_name,
+        ur.deleted_at AS revoked_at,
+        (SELECT display_name FROM users WHERE id = ur.deleted_by) AS revoked_by_name,
+        ur.is_active
+    FROM public.user_roles ur
+    JOIN public.roles r ON r.id = ur.role_id
+    WHERE ur.user_id = p_user_id
+    AND (p_from_date IS NULL OR ur.assigned_at >= p_from_date)
+    AND (p_to_date IS NULL OR ur.assigned_at <= p_to_date)
+    ORDER BY ur.assigned_at DESC;
 END;
 $$;
+
+-- Create necessary triggers
+CREATE TRIGGER before_role_delete
+    BEFORE DELETE ON public.roles
+    FOR EACH ROW
+    EXECUTE FUNCTION handle_role_soft_delete();
+
+CREATE TRIGGER on_user_role_change
+    AFTER INSERT OR UPDATE ON public.user_roles
+    FOR EACH ROW
+    EXECUTE FUNCTION handle_user_role_change();
+
+
+-- 
 --
 --
---
--- Insert here
---
---
----
 -- ========================================================================================
 -- Audit and Logging Functions
 -- ========================================================================================
@@ -2272,3 +1949,165 @@ BEGIN
     RETURN NEW;
 END;
 $$;
+
+/**
+ * Function: manage_user_role()
+ *
+ * Purpose: Unified function to assign or revoke user roles with hierarchy validation
+ *
+ * Parameters:
+ *   @p_user_id UUID - The user to manage roles for
+ *   @p_role_type role_type - The role type to assign/revoke
+ *   @p_managed_by UUID - The user performing the action
+ *   @p_action TEXT - Either 'assign' or 'revoke'
+ *
+ * Returns: BOOLEAN
+ *   - TRUE if operation successful
+ *   - FALSE if no changes made
+ *
+ * Security: SECURITY DEFINER
+ * 
+ * Features:
+ *   - Role hierarchy validation
+ *   - System role protection
+ *   - Optimistic locking
+ *   - Audit logging
+ *   - Cascade handling
+ *
+ * Example Usage:
+ *   SELECT manage_user_role(
+ *     '123e4567-e89b-12d3-a456-426614174000',
+ *     'editor'::role_type,
+ *     '123e4567-e89b-12d3-a456-426614174999',
+ *     'assign'
+ *   );
+ */
+
+/**
+ * Function: get_user_roles()
+ *
+ * Purpose: Retrieve all active roles for a user with hierarchy information
+ *
+ * Parameters:
+ *   @p_user_id UUID - The user to get roles for
+ *
+ * Returns: TABLE
+ *   - role_id UUID
+ *   - role_type role_type
+ *   - role_name TEXT
+ *   - hierarchy_level INTEGER
+ *   - is_system_role BOOLEAN
+ *   - assigned_at TIMESTAMPTZ
+ *   - assigned_by UUID
+ *
+ * Security: SECURITY DEFINER
+ *
+ * Features:
+ *   - Hierarchy level inclusion
+ *   - System role identification
+ *   - Assignment metadata
+ *   - Proper sorting
+ *
+ * Example Usage:
+ *   SELECT * FROM get_user_roles('123e4567-e89b-12d3-a456-426614174000');
+ */
+
+/**
+ * Function: check_user_role()
+ *
+ * Purpose: Validate if a user has a specific role or higher level role
+ *
+ * Parameters:
+ *   @p_user_id UUID - The user to check
+ *   @p_role_type role_type - The role type to verify
+ *   @p_check_higher_roles BOOLEAN - Include higher roles in check
+ *
+ * Returns: BOOLEAN
+ *   - TRUE if user has required role access
+ *   - FALSE otherwise
+ *
+ * Security: SECURITY DEFINER
+ *
+ * Features:
+ *   - Hierarchy validation
+ *   - Active role checking
+ *   - System role handling
+ *   - Optimized performance
+ *
+ * Example Usage:
+ *   SELECT check_user_role(
+ *     '123e4567-e89b-12d3-a456-426614174000',
+ *     'editor'::role_type,
+ *     true
+ *   );
+ */
+
+/**
+ * Function: handle_role_soft_delete()
+ *
+ * Purpose: Manage role deletion with proper cascade and cleanup
+ *
+ * Trigger: BEFORE DELETE ON roles
+ * Returns: TRIGGER
+ * Security: SECURITY DEFINER
+ *
+ * Features:
+ *   - System role protection
+ *   - Cascade handling
+ *   - Version management
+ *   - Audit logging
+ *   - Cleanup of related records
+ *
+ * Example Usage:
+ *   Automatically triggered on role deletion:
+ *   CREATE TRIGGER before_role_delete
+ *   BEFORE DELETE ON roles
+ *   FOR EACH ROW EXECUTE FUNCTION handle_role_soft_delete();
+ */
+
+/**
+ * Function: get_role_hierarchy_level()
+ *
+ * Purpose: Convert role type to numeric hierarchy level
+ *
+ * Parameters:
+ *   @p_role_type role_type - The role type to convert
+ *
+ * Returns: INTEGER
+ *   - 7: super_admin
+ *   - 6: admin
+ *   - 5: manager
+ *   - 4: moderator
+ *   - 3: editor
+ *   - 2: user
+ *   - 1: guest
+ *
+ * Security: SECURITY DEFINER
+ *
+ * Example Usage:
+ *   SELECT get_role_hierarchy_level('admin'::role_type);
+ */
+
+/**
+ * Function: handle_user_role_change()
+ *
+ * Purpose: Trigger function for tracking role assignment changes
+ *
+ * Trigger: AFTER INSERT OR UPDATE ON user_roles
+ * Returns: TRIGGER
+ * Security: SECURITY DEFINER
+ *
+ * Features:
+ *   - Comprehensive audit logging
+ *   - Version management
+ *   - Activity tracking
+ *   - Metadata recording
+ *
+ * Example Usage:
+ *   Automatically triggered on role changes:
+ *   CREATE TRIGGER on_user_role_change
+ *   AFTER INSERT OR UPDATE ON user_roles
+ *   FOR EACH ROW EXECUTE FUNCTION handle_user_role_change();
+ */
+
+{{ ... }}
