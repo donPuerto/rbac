@@ -238,3 +238,39 @@ COMMENT ON TABLE public.user_phone_numbers IS 'User contact phone numbers with v
 COMMENT ON TABLE public.user_addresses IS 'User physical addresses';
 COMMENT ON TABLE public.audit_logs IS 'System-level change tracking';
 COMMENT ON TABLE public.user_activities IS 'User action and behavior tracking';
+
+-- Add necessary table for role delegations if not exists
+CREATE TABLE IF NOT EXISTS public.role_delegations (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    delegator_id UUID NOT NULL REFERENCES public.users(id),
+    delegate_id UUID NOT NULL REFERENCES public.users(id),
+    role_types role_type[] NOT NULL,
+    is_active BOOLEAN DEFAULT true,
+    
+    -- Audit fields
+    created_at TIMESTAMPTZ DEFAULT now() NOT NULL,
+    created_by UUID REFERENCES public.users(id),
+    updated_at TIMESTAMPTZ DEFAULT now() NOT NULL,
+    updated_by UUID REFERENCES public.users(id),
+    deleted_at TIMESTAMPTZ,
+    deleted_by UUID REFERENCES public.users(id),
+    
+    -- Constraints
+    UNIQUE(delegator_id, delegate_id, deleted_at)
+);
+
+-- Add necessary table for scheduled tasks if not exists
+CREATE TABLE IF NOT EXISTS public.scheduled_tasks (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    task_type TEXT NOT NULL,
+    execute_at TIMESTAMPTZ NOT NULL,
+    parameters JSONB NOT NULL,
+    is_processed BOOLEAN DEFAULT false,
+    processed_at TIMESTAMPTZ,
+    
+    -- Audit fields
+    created_at TIMESTAMPTZ DEFAULT now() NOT NULL,
+    created_by UUID REFERENCES public.users(id),
+    updated_at TIMESTAMPTZ DEFAULT now() NOT NULL,
+    updated_by UUID REFERENCES public.users(id)
+);
