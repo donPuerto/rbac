@@ -1,0 +1,5 @@
+# Ignore all files
+*
+
+# Only show README.md
+!README.md
