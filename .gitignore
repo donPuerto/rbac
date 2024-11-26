@@ -1,5 +1,16 @@
 # Ignore all files
 *
+*.sql
+*.SQL
+
+# Ignore specific files
+01_enum.sql
+02_tables.sql
+03_functions.sql
+04_initial_data.sql
+05_rls_policies.sql
+06_grant_permissions.sql
+07_indexes.sql
 
 # Only show README.md
 !README.md
