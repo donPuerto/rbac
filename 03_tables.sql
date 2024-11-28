@@ -149,7 +149,7 @@ CREATE INDEX idx_users_deleted_at ON public.users(deleted_at) WHERE deleted_at I
 -- Roles table: Defines system roles with role_type hierarchy
 -- =====================================================================================
 CREATE TABLE public.roles (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     name TEXT NOT NULL UNIQUE,            -- Role identifier
     description TEXT,                     -- Human-readable description
     type role_type NOT NULL,              -- Hierarchical role type
@@ -177,7 +177,7 @@ CREATE INDEX idx_roles_is_active ON public.roles(is_active);
 -- Permissions table: Defines available system permissions
 -- =====================================================================================
 CREATE TABLE public.permissions (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     name TEXT NOT NULL UNIQUE,            -- Permission identifier
     description TEXT,                     -- Human-readable description
     resource TEXT NOT NULL,               -- Resource being protected
@@ -204,7 +204,7 @@ CREATE INDEX idx_permissions_is_active ON public.permissions(is_active);
 -- User Roles: Maps users to their assigned roles
 -- =====================================================================================
 CREATE TABLE public.user_roles (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
     role_id UUID NOT NULL REFERENCES public.roles(id) ON DELETE CASCADE,
 
@@ -235,7 +235,7 @@ CREATE INDEX idx_user_roles_is_active ON public.user_roles(is_active);
 -- Role Permissions: Maps roles to their assigned permissions
 -- =====================================================================================
 CREATE TABLE public.role_permissions (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     role_id UUID NOT NULL REFERENCES public.roles(id) ON DELETE CASCADE,
     permission_id UUID NOT NULL REFERENCES public.permissions(id) ON DELETE CASCADE,
 
@@ -265,7 +265,7 @@ CREATE INDEX idx_role_permissions_granted_at ON public.role_permissions(granted_
 -- Role Delegations: Tracks role management delegations
 -- =====================================================================================
 CREATE TABLE public.role_delegations (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     delegator_id UUID NOT NULL REFERENCES auth.users(id),
     delegate_id UUID NOT NULL REFERENCES auth.users(id),
     role_id UUID NOT NULL REFERENCES public.roles(id),
@@ -303,7 +303,7 @@ CREATE INDEX idx_role_delegations_expires ON public.role_delegations(expires_at)
 -- Error Logs: System-wide error tracking and debugging
 -- =====================================================================================
 CREATE TABLE public.error_logs (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     
     -- Error details
     error_message TEXT NOT NULL,          -- Main error message
@@ -351,7 +351,7 @@ CREATE INDEX idx_error_logs_table_name ON public.error_logs(table_name);
 -- Audit Logs: System change tracking
 -- =====================================================================================
 CREATE TABLE public.audit_logs (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     table_name TEXT NOT NULL,             -- Table being audited
     record_id UUID NOT NULL,              -- Primary key of audited record
     action TEXT NOT NULL,                 -- INSERT, UPDATE, DELETE
@@ -375,7 +375,7 @@ CREATE INDEX idx_audit_logs_created_at ON public.audit_logs(created_at);
 -- User Activities: User behavior tracking
 -- =====================================================================================
 CREATE TABLE public.user_activities (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL REFERENCES auth.users(id),
     activity_type TEXT NOT NULL,          -- Login, logout, etc.
     description TEXT,                     -- Activity details
@@ -394,7 +394,7 @@ CREATE INDEX idx_user_activities_created_at ON public.user_activities(created_at
 -- Scheduled Tasks: System scheduled tasks including role expirations
 -- =====================================================================================
 CREATE TABLE public.scheduled_tasks (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     task_type TEXT NOT NULL,              -- Type of scheduled task
     execute_at TIMESTAMPTZ NOT NULL,      -- When to execute
     data JSONB NOT NULL,                  -- Task-specific data
@@ -428,7 +428,7 @@ CREATE INDEX idx_scheduled_tasks_execute_at ON public.scheduled_tasks(execute_at
 -- User Phone Numbers: User contact information
 -- =====================================================================================
 CREATE TABLE public.user_phone_numbers (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
     phone_number TEXT NOT NULL,
     type TEXT NOT NULL DEFAULT 'mobile'
@@ -458,7 +458,7 @@ CREATE INDEX idx_phone_numbers_is_primary ON public.user_phone_numbers(is_primar
 -- User Addresses: User physical addresses
 -- =====================================================================================
 CREATE TABLE public.user_addresses (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
     type TEXT NOT NULL DEFAULT 'home'
         CHECK (type IN ('home', 'work', 'billing', 'shipping', 'other')),
