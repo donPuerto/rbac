@@ -146,6 +146,12 @@ CREATE INDEX idx_users_created_at ON public.users(created_at);
 CREATE INDEX idx_users_updated_at ON public.users(updated_at);
 CREATE INDEX idx_users_deleted_at ON public.users(deleted_at) WHERE deleted_at IS NOT NULL;
 
+-- Grant permissions for users table
+GRANT SELECT ON public.users TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.users TO service_role;
+GRANT USAGE ON SEQUENCE public.users_version_seq TO authenticated;
+GRANT USAGE ON SEQUENCE public.users_version_seq TO service_role;
+
 -- Roles table: Defines system roles with role_type hierarchy
 -- =====================================================================================
 CREATE TABLE public.roles (
@@ -174,6 +180,12 @@ CREATE INDEX idx_roles_name ON public.roles(name);
 CREATE INDEX idx_roles_type ON public.roles(type);
 CREATE INDEX idx_roles_is_active ON public.roles(is_active);
 
+-- Grant permissions for roles table
+GRANT SELECT ON public.roles TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.roles TO service_role;
+GRANT USAGE ON SEQUENCE public.roles_version_seq TO authenticated;
+GRANT USAGE ON SEQUENCE public.roles_version_seq TO service_role;
+
 -- Permissions table: Defines available system permissions
 -- =====================================================================================
 CREATE TABLE public.permissions (
@@ -200,6 +212,12 @@ COMMENT ON TABLE public.permissions IS 'Available system permissions and access 
 CREATE INDEX idx_permissions_name ON public.permissions(name);
 CREATE INDEX idx_permissions_resource_action ON public.permissions(resource, action);
 CREATE INDEX idx_permissions_is_active ON public.permissions(is_active);
+
+-- Grant permissions for permissions table
+GRANT SELECT ON public.permissions TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.permissions TO service_role;
+GRANT USAGE ON SEQUENCE public.permissions_version_seq TO authenticated;
+GRANT USAGE ON SEQUENCE public.permissions_version_seq TO service_role;
 
 -- User Roles: Maps users to their assigned roles
 -- =====================================================================================
@@ -232,6 +250,10 @@ CREATE INDEX idx_user_roles_role_id ON public.user_roles(role_id);
 CREATE INDEX idx_user_roles_assigned_at ON public.user_roles(assigned_at);
 CREATE INDEX idx_user_roles_is_active ON public.user_roles(is_active);
 
+-- Grant permissions for user_roles table
+GRANT SELECT ON public.user_roles TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.user_roles TO service_role;
+
 -- Role Permissions: Maps roles to their assigned permissions
 -- =====================================================================================
 CREATE TABLE public.role_permissions (
@@ -261,6 +283,10 @@ COMMENT ON TABLE public.role_permissions IS 'Role to permission mappings with te
 CREATE INDEX idx_role_permissions_role_id ON public.role_permissions(role_id);
 CREATE INDEX idx_role_permissions_permission_id ON public.role_permissions(permission_id);
 CREATE INDEX idx_role_permissions_granted_at ON public.role_permissions(granted_at);
+
+-- Grant permissions for role_permissions table
+GRANT SELECT ON public.role_permissions TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.role_permissions TO service_role;
 
 -- Role Delegations: Tracks role management delegations
 -- =====================================================================================
@@ -295,6 +321,10 @@ CREATE INDEX idx_role_delegations_delegator ON public.role_delegations(delegator
 CREATE INDEX idx_role_delegations_delegate ON public.role_delegations(delegate_id);
 CREATE INDEX idx_role_delegations_role ON public.role_delegations(role_id);
 CREATE INDEX idx_role_delegations_expires ON public.role_delegations(expires_at);
+
+-- Grant permissions for role_delegations table
+GRANT SELECT ON public.role_delegations TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.role_delegations TO service_role;
 
 -- =====================================================================================
 -- System Management Tables
@@ -348,6 +378,10 @@ CREATE INDEX idx_error_logs_function ON public.error_logs(function_name);
 CREATE INDEX idx_error_logs_is_resolved ON public.error_logs(is_resolved);
 CREATE INDEX idx_error_logs_table_name ON public.error_logs(table_name);
 
+-- Grant permissions for error_logs table
+GRANT SELECT ON public.error_logs TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.error_logs TO service_role;
+
 -- Audit Logs: System change tracking
 -- =====================================================================================
 CREATE TABLE public.audit_logs (
@@ -372,6 +406,10 @@ CREATE INDEX idx_audit_logs_action ON public.audit_logs(action);
 CREATE INDEX idx_audit_logs_performed_by ON public.audit_logs(performed_by);
 CREATE INDEX idx_audit_logs_created_at ON public.audit_logs(created_at);
 
+-- Grant permissions for audit_logs table
+GRANT SELECT ON public.audit_logs TO authenticated;
+GRANT SELECT, INSERT ON public.audit_logs TO service_role;
+
 -- User Activities: User behavior tracking
 -- =====================================================================================
 CREATE TABLE public.user_activities (
@@ -390,6 +428,10 @@ COMMENT ON TABLE public.user_activities IS 'User action and behavior tracking';
 CREATE INDEX idx_user_activities_user_id ON public.user_activities(user_id);
 CREATE INDEX idx_user_activities_type ON public.user_activities(activity_type);
 CREATE INDEX idx_user_activities_created_at ON public.user_activities(created_at);
+
+-- Grant permissions for user_activities table
+GRANT SELECT ON public.user_activities TO authenticated;
+GRANT SELECT, INSERT ON public.user_activities TO service_role;
 
 -- Scheduled Tasks: System scheduled tasks including role expirations
 -- =====================================================================================
@@ -420,6 +462,10 @@ COMMENT ON TABLE public.scheduled_tasks IS 'Manages scheduled system tasks';
 CREATE INDEX idx_scheduled_tasks_type ON public.scheduled_tasks(task_type);
 CREATE INDEX idx_scheduled_tasks_status ON public.scheduled_tasks(status);
 CREATE INDEX idx_scheduled_tasks_execute_at ON public.scheduled_tasks(execute_at);
+
+-- Grant permissions for scheduled_tasks table
+GRANT SELECT ON public.scheduled_tasks TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.scheduled_tasks TO service_role;
 
 -- =====================================================================================
 -- Supporting Tables
@@ -455,6 +501,10 @@ CREATE INDEX idx_phone_numbers_user_id ON public.user_phone_numbers(user_id);
 CREATE INDEX idx_phone_numbers_type ON public.user_phone_numbers(type);
 CREATE INDEX idx_phone_numbers_is_primary ON public.user_phone_numbers(is_primary);
 
+-- Grant permissions for user_phone_numbers table
+GRANT SELECT ON public.user_phone_numbers TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.user_phone_numbers TO service_role;
+
 -- User Addresses: User physical addresses
 -- =====================================================================================
 CREATE TABLE public.user_addresses (
@@ -489,3 +539,12 @@ COMMENT ON TABLE public.user_addresses IS 'User address management';
 CREATE INDEX idx_addresses_user_id ON public.user_addresses(user_id);
 CREATE INDEX idx_addresses_type ON public.user_addresses(type);
 CREATE INDEX idx_addresses_is_primary ON public.user_addresses(is_primary);
+
+-- Grant permissions for user_addresses table
+GRANT SELECT ON public.user_addresses TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.user_addresses TO service_role;
+
+-- Grant schema usage
+GRANT USAGE ON SCHEMA public TO authenticated;
+GRANT USAGE ON SCHEMA public TO anon;
+GRANT USAGE ON SCHEMA public TO service_role;
