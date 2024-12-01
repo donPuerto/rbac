@@ -24,70 +24,133 @@ REVOKE ALL ON ALL FUNCTIONS IN SCHEMA public FROM service_role;
 REVOKE ALL ON ALL SEQUENCES IN SCHEMA public FROM service_role;
 REVOKE ALL ON SCHEMA public FROM service_role;
 
--- Disable RLS on all tables first
+-- Disable RLS on all tables first (only if they exist)
 -- =====================================================================================
-ALTER TABLE IF EXISTS public.user_activities DISABLE ROW LEVEL SECURITY;
-ALTER TABLE IF EXISTS public.audit_logs DISABLE ROW LEVEL SECURITY;
-ALTER TABLE IF EXISTS public.user_addresses DISABLE ROW LEVEL SECURITY;
-ALTER TABLE IF EXISTS public.user_phone_numbers DISABLE ROW LEVEL SECURITY;
-ALTER TABLE IF EXISTS public.scheduled_tasks DISABLE ROW LEVEL SECURITY;
-ALTER TABLE IF EXISTS public.role_delegations DISABLE ROW LEVEL SECURITY;
-ALTER TABLE IF EXISTS public.role_permissions DISABLE ROW LEVEL SECURITY;
-ALTER TABLE IF EXISTS public.user_roles DISABLE ROW LEVEL SECURITY;
-ALTER TABLE IF EXISTS public.permissions DISABLE ROW LEVEL SECURITY;
-ALTER TABLE IF EXISTS public.roles DISABLE ROW LEVEL SECURITY;
-ALTER TABLE IF EXISTS public.users DISABLE ROW LEVEL SECURITY;
-ALTER TABLE IF EXISTS public.error_logs DISABLE ROW LEVEL SECURITY;
+DO $$ 
+BEGIN
+    -- Disable RLS for each table if it exists
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'user_activities') THEN
+        ALTER TABLE public.user_activities DISABLE ROW LEVEL SECURITY;
+    END IF;
+    
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'audit_logs') THEN
+        ALTER TABLE public.audit_logs DISABLE ROW LEVEL SECURITY;
+    END IF;
+    
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'user_addresses') THEN
+        ALTER TABLE public.user_addresses DISABLE ROW LEVEL SECURITY;
+    END IF;
+    
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'user_phone_numbers') THEN
+        ALTER TABLE public.user_phone_numbers DISABLE ROW LEVEL SECURITY;
+    END IF;
+    
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'scheduled_tasks') THEN
+        ALTER TABLE public.scheduled_tasks DISABLE ROW LEVEL SECURITY;
+    END IF;
+    
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'role_delegations') THEN
+        ALTER TABLE public.role_delegations DISABLE ROW LEVEL SECURITY;
+    END IF;
+    
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'role_permissions') THEN
+        ALTER TABLE public.role_permissions DISABLE ROW LEVEL SECURITY;
+    END IF;
+    
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'user_roles') THEN
+        ALTER TABLE public.user_roles DISABLE ROW LEVEL SECURITY;
+    END IF;
+    
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'permissions') THEN
+        ALTER TABLE public.permissions DISABLE ROW LEVEL SECURITY;
+    END IF;
+    
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'roles') THEN
+        ALTER TABLE public.roles DISABLE ROW LEVEL SECURITY;
+    END IF;
+    
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'users') THEN
+        ALTER TABLE public.users DISABLE ROW LEVEL SECURITY;
+    END IF;
+    
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'error_logs') THEN
+        ALTER TABLE public.error_logs DISABLE ROW LEVEL SECURITY;
+    END IF;
+END $$;
 
--- Drop RLS Policies
+-- Drop RLS Policies (only if tables exist)
 -- =====================================================================================
+DO $$ 
+BEGIN
+    -- Drop User Activities Policies if table exists
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'user_activities') THEN
+        DROP POLICY IF EXISTS "Users can view their own activities" ON public.user_activities;
+        DROP POLICY IF EXISTS "System can manage activities" ON public.user_activities;
+        DROP POLICY IF EXISTS "Users can view their activities" ON public.user_activities;
+    END IF;
 
--- Drop User Activities Policies
-DROP POLICY IF EXISTS "Users can view their own activities" ON public.user_activities;
-DROP POLICY IF EXISTS "System can manage activities" ON public.user_activities;
-DROP POLICY IF EXISTS "Users can view their activities" ON public.user_activities;
+    -- Drop Audit Log Policies if table exists
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'audit_logs') THEN
+        DROP POLICY IF EXISTS "Only audit admins can view audit logs" ON public.audit_logs;
+        DROP POLICY IF EXISTS "Users can view relevant audit logs" ON public.audit_logs;
+        DROP POLICY IF EXISTS "Audit admins can manage audit logs" ON public.audit_logs;
+    END IF;
 
--- Drop Audit Log Policies
-DROP POLICY IF EXISTS "Only audit admins can view audit logs" ON public.audit_logs;
-DROP POLICY IF EXISTS "Users can view relevant audit logs" ON public.audit_logs;
-DROP POLICY IF EXISTS "Audit admins can manage audit logs" ON public.audit_logs;
+    -- Drop Scheduled Task Policies if table exists
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'scheduled_tasks') THEN
+        DROP POLICY IF EXISTS "Only system admins can manage scheduled tasks" ON public.scheduled_tasks;
+        DROP POLICY IF EXISTS "Admins can view scheduled tasks" ON public.scheduled_tasks;
+        DROP POLICY IF EXISTS "System can manage scheduled tasks" ON public.scheduled_tasks;
+    END IF;
 
--- Drop Scheduled Task Policies
-DROP POLICY IF EXISTS "Only system admins can manage scheduled tasks" ON public.scheduled_tasks;
-DROP POLICY IF EXISTS "Admins can view scheduled tasks" ON public.scheduled_tasks;
-DROP POLICY IF EXISTS "System can manage scheduled tasks" ON public.scheduled_tasks;
+    -- Drop Role Delegation Policies if table exists
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'role_delegations') THEN
+        DROP POLICY IF EXISTS "Users can view their delegations" ON public.role_delegations;
+        DROP POLICY IF EXISTS "Only admins can manage delegations" ON public.role_delegations;
+    END IF;
 
--- Drop Role Delegation Policies
-DROP POLICY IF EXISTS "Users can view their delegations" ON public.role_delegations;
-DROP POLICY IF EXISTS "Only admins can manage delegations" ON public.role_delegations;
+    -- Drop User Address Policies if table exists
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'user_addresses') THEN
+        DROP POLICY IF EXISTS "Users can view and manage their addresses" ON public.user_addresses;
+    END IF;
 
--- Drop User Address Policies
-DROP POLICY IF EXISTS "Users can view and manage their addresses" ON public.user_addresses;
+    -- Drop User Phone Number Policies if table exists
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'user_phone_numbers') THEN
+        DROP POLICY IF EXISTS "Users can view and manage their phone numbers" ON public.user_phone_numbers;
+    END IF;
 
--- Drop User Phone Number Policies
-DROP POLICY IF EXISTS "Users can view and manage their phone numbers" ON public.user_phone_numbers;
+    -- Drop Role Permission Policies if table exists
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'role_permissions') THEN
+        DROP POLICY IF EXISTS "Anyone can view role permissions" ON public.role_permissions;
+        DROP POLICY IF EXISTS "Only super admins can manage role permissions" ON public.role_permissions;
+    END IF;
 
--- Drop Role Permission Policies
-DROP POLICY IF EXISTS "Anyone can view role permissions" ON public.role_permissions;
-DROP POLICY IF EXISTS "Only super admins can manage role permissions" ON public.role_permissions;
+    -- Drop User Role Policies if table exists
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'user_roles') THEN
+        DROP POLICY IF EXISTS "Users can view their own roles" ON public.user_roles;
+        DROP POLICY IF EXISTS "Only admins can manage user roles" ON public.user_roles;
+    END IF;
 
--- Drop User Role Policies
-DROP POLICY IF EXISTS "Users can view their own roles" ON public.user_roles;
-DROP POLICY IF EXISTS "Only admins can manage user roles" ON public.user_roles;
+    -- Drop Permission Policies if table exists
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'permissions') THEN
+        DROP POLICY IF EXISTS "Anyone can view permissions" ON public.permissions;
+        DROP POLICY IF EXISTS "Only super admins can manage permissions" ON public.permissions;
+    END IF;
 
--- Drop Permission Policies
-DROP POLICY IF EXISTS "Anyone can view permissions" ON public.permissions;
-DROP POLICY IF EXISTS "Only super admins can manage permissions" ON public.permissions;
+    -- Drop Role Policies if table exists
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'roles') THEN
+        DROP POLICY IF EXISTS "Anyone can view active roles" ON public.roles;
+        DROP POLICY IF EXISTS "Only super admins can manage roles" ON public.roles;
+    END IF;
 
--- Drop Role Policies
-DROP POLICY IF EXISTS "Anyone can view active roles" ON public.roles;
-DROP POLICY IF EXISTS "Only super admins can manage roles" ON public.roles;
-
--- Drop User Policies (Drop these last as they're often referenced by other policies)
-DROP POLICY IF EXISTS "Users can view their own profile" ON public.users;
-DROP POLICY IF EXISTS "User admins can create users" ON public.users;
-DROP POLICY IF EXISTS "Users can update their own profile" ON public.users;
-DROP POLICY IF EXISTS "Only super admins can delete users" ON public.users;
+    -- Drop User Policies if table exists
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'users') THEN
+        DROP POLICY IF EXISTS "Users can view their own profile" ON public.users;
+        DROP POLICY IF EXISTS "User admins can create users" ON public.users;
+        DROP POLICY IF EXISTS "Users can update their own profile" ON public.users;
+        DROP POLICY IF EXISTS "Only super admins can delete users" ON public.users;
+    END IF;
+END $$;
 
 -- Drop Indexes
 -- =====================================================================================
@@ -181,8 +244,23 @@ DROP TRIGGER IF EXISTS audit_changes ON public.roles;
 DROP TRIGGER IF EXISTS audit_changes ON public.permissions;
 DROP TRIGGER IF EXISTS audit_changes ON public.users;
 
--- Drop Functions
+-- Drop Functions (in dependency order)
 -- =====================================================================================
+DO $$ 
+DECLARE
+    func record;
+BEGIN
+    -- Get all functions in public schema
+    FOR func IN 
+        SELECT routine_name, routine_schema 
+        FROM information_schema.routines 
+        WHERE routine_schema = 'public'
+    LOOP
+        EXECUTE 'DROP FUNCTION IF EXISTS public.' || func.routine_name || ' CASCADE;';
+    END LOOP;
+END $$;
+
+-- Explicitly drop known functions in case any remain
 DROP FUNCTION IF EXISTS public.handle_new_user() CASCADE;
 DROP FUNCTION IF EXISTS public.is_user_active(UUID) CASCADE;
 DROP FUNCTION IF EXISTS public.soft_delete_user(UUID) CASCADE;
@@ -196,25 +274,22 @@ DROP FUNCTION IF EXISTS public.validate_user_access(UUID, TEXT, TEXT) CASCADE;
 DROP FUNCTION IF EXISTS public.manage_user_role(UUID, role_type, UUID, TEXT) CASCADE;
 DROP FUNCTION IF EXISTS public.get_user_roles(UUID) CASCADE;
 DROP FUNCTION IF EXISTS public.check_user_role(UUID, role_type, BOOLEAN) CASCADE;
-DROP FUNCTION IF EXISTS public.handle_user_role_change() CASCADE;
-DROP FUNCTION IF EXISTS public.get_role_assignments_history(UUID) CASCADE;
+DROP FUNCTION IF EXISTS public.get_role_hierarchy_level(role_type) CASCADE;
+DROP FUNCTION IF EXISTS public.get_role_assignments_history(UUID, TIMESTAMPTZ, TIMESTAMPTZ) CASCADE;
+DROP FUNCTION IF EXISTS public.validate_role_hierarchy_change(UUID, role_type) CASCADE;
 DROP FUNCTION IF EXISTS public.get_users_by_role(role_type, BOOLEAN, BOOLEAN) CASCADE;
+DROP FUNCTION IF EXISTS public.check_role_conflicts(UUID, role_type) CASCADE;
 DROP FUNCTION IF EXISTS public.assign_temporary_role(UUID, role_type, TIMESTAMPTZ, UUID) CASCADE;
-DROP FUNCTION IF EXISTS public.schedule_role_expiration() CASCADE;
-DROP FUNCTION IF EXISTS public.get_role_permissions() CASCADE;
-DROP FUNCTION IF EXISTS public.has_any_role(role_type[]) CASCADE;
-DROP FUNCTION IF EXISTS public.process_audit() CASCADE;
-DROP FUNCTION IF EXISTS public.log_audit_event(TEXT, TEXT, UUID, JSONB, JSONB, JSONB) CASCADE;
-DROP FUNCTION IF EXISTS public.log_user_activity(UUID, TEXT, TEXT, JSONB) CASCADE;
+DROP FUNCTION IF EXISTS public.schedule_role_expiration(UUID, role_type, TIMESTAMPTZ) CASCADE;
+DROP FUNCTION IF EXISTS public.revoke_expired_roles() CASCADE;
+DROP FUNCTION IF EXISTS public.has_any_role(UUID, role_type[]) CASCADE;
+DROP FUNCTION IF EXISTS public.get_role_permissions(UUID) CASCADE;
+DROP FUNCTION IF EXISTS public.manage_role_delegation(UUID, UUID, UUID, role_type, TIMESTAMPTZ) CASCADE;
+DROP FUNCTION IF EXISTS public.validate_delegation(UUID, UUID, role_type) CASCADE;
 DROP FUNCTION IF EXISTS public.prevent_id_modification() CASCADE;
 DROP FUNCTION IF EXISTS public.update_timestamp() CASCADE;
-DROP FUNCTION IF EXISTS public.initialize_default_roles() CASCADE;
-DROP FUNCTION IF EXISTS public.get_role_hierarchy_level(role_type) CASCADE;
-DROP FUNCTION IF EXISTS public.validate_role_hierarchy_change(UUID, role_type) CASCADE;
-DROP FUNCTION IF EXISTS public.check_role_conflicts(UUID, role_type) CASCADE;
-DROP FUNCTION IF EXISTS public.delegate_role_management(UUID, UUID, role_type[]) CASCADE;
-DROP FUNCTION IF EXISTS public.grant_permission(UUID, UUID) CASCADE;
-DROP FUNCTION IF EXISTS public.revoke_permission(UUID, UUID) CASCADE;
+DROP FUNCTION IF EXISTS public.log_audit_event(TEXT, TEXT, UUID, JSONB, JSONB, JSONB) CASCADE;
+DROP FUNCTION IF EXISTS public.log_user_activity(UUID, TEXT, TEXT, JSONB) CASCADE;
 
 -- Drop Tables
 -- =====================================================================================

@@ -149,8 +149,6 @@ CREATE INDEX idx_users_deleted_at ON public.users(deleted_at) WHERE deleted_at I
 -- Grant permissions for users table
 GRANT SELECT ON public.users TO authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.users TO service_role;
-GRANT USAGE ON SEQUENCE public.users_version_seq TO authenticated;
-GRANT USAGE ON SEQUENCE public.users_version_seq TO service_role;
 
 -- Roles table: Defines system roles with role_type hierarchy
 -- =====================================================================================
@@ -183,8 +181,6 @@ CREATE INDEX idx_roles_is_active ON public.roles(is_active);
 -- Grant permissions for roles table
 GRANT SELECT ON public.roles TO authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.roles TO service_role;
-GRANT USAGE ON SEQUENCE public.roles_version_seq TO authenticated;
-GRANT USAGE ON SEQUENCE public.roles_version_seq TO service_role;
 
 -- Permissions table: Defines available system permissions
 -- =====================================================================================
@@ -216,8 +212,6 @@ CREATE INDEX idx_permissions_is_active ON public.permissions(is_active);
 -- Grant permissions for permissions table
 GRANT SELECT ON public.permissions TO authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.permissions TO service_role;
-GRANT USAGE ON SEQUENCE public.permissions_version_seq TO authenticated;
-GRANT USAGE ON SEQUENCE public.permissions_version_seq TO service_role;
 
 -- User Roles: Maps users to their assigned roles
 -- =====================================================================================

@@ -76,6 +76,7 @@
  *    - update_timestamp() - Update timestamp trigger
  *    - initialize_default_roles() - Initialize system roles
  *
+ */
 
 
 -- ========================================================================================
@@ -123,87 +124,132 @@ DROP FUNCTION IF EXISTS public.handle_new_user();
 
 -- Create the function to handle new user creation
 CREATE OR REPLACE FUNCTION public.handle_new_user()
-RETURNS TRIGGER
-SECURITY DEFINER 
-SET search_path = public
-LANGUAGE plpgsql
-AS $$
+RETURNS TRIGGER AS $$
 DECLARE
-    v_function_name TEXT := 'handle_new_user';
+    v_email_exists BOOLEAN;
+    v_error_details JSONB;
 BEGIN
-    -- Basic validation
-    IF NEW.email IS NULL THEN
-        -- Log validation error
+    -- Check if email already exists
+    SELECT EXISTS (
+        SELECT 1 
+        FROM public.users 
+        WHERE email = NEW.email 
+        AND id != NEW.id
+        AND deleted_at IS NULL
+    ) INTO v_email_exists;
+
+    -- If email exists, log error and abort
+    IF v_email_exists THEN
+        v_error_details := jsonb_build_object(
+            'email', NEW.email,
+            'user_id', NEW.id,
+            'error_type', 'DUPLICATE_EMAIL'
+        );
+        
         INSERT INTO public.error_logs (
             error_message,
+            error_details,
             severity,
             function_name,
-            context_data
-        )
-        VALUES (
-            'New user email cannot be null',
+            user_id,
+            table_name
+        ) VALUES (
+            'Cannot create user: Email already exists',
+            v_error_details,
             'ERROR',
-            v_function_name,
-            jsonb_build_object(
-                'auth_user_id', NEW.id,
-                'raw_user_meta_data', NEW.raw_user_meta_data
-            )
+            'handle_new_user',
+            NEW.id,
+            'users'
         );
-        RAISE EXCEPTION 'Email cannot be null';
+        
+        RAISE EXCEPTION 'Email % already exists', NEW.email;
     END IF;
 
-    -- Insert the user into public.users
-    BEGIN
-        INSERT INTO public.users (
-            id,
-            email,
-            first_name,
-            last_name,
-            status
-        ) VALUES (
-            NEW.id,
-            NEW.email,
-            COALESCE(NEW.raw_user_meta_data->>'first_name', 'Unknown'),
-            COALESCE(NEW.raw_user_meta_data->>'last_name', 'User'),
-            'active'
-        );
+    -- Insert new user with validated data
+    INSERT INTO public.users (
+        id,
+        email,
+        first_name,
+        last_name,
+        display_name,
+        status,
+        created_at,
+        updated_at,
+        version
+    ) VALUES (
+        NEW.id,
+        NEW.email,
+        COALESCE(NEW.raw_user_meta_data->>'first_name', 'Unknown'),
+        COALESCE(NEW.raw_user_meta_data->>'last_name', 'User'),
+        COALESCE(NEW.raw_user_meta_data->>'display_name', 
+                 NEW.raw_user_meta_data->>'first_name' || ' ' || 
+                 NEW.raw_user_meta_data->>'last_name',
+                 NEW.email),
+        'active',
+        NOW(),
+        NOW(),
+        1
+    );
 
-    EXCEPTION WHEN OTHERS THEN
-        -- Log error details
-        INSERT INTO public.error_logs (
-            error_message,
-            error_code,
-            function_name,
-            severity,
-            context_data
-        )
-        VALUES (
-            SQLERRM,
-            SQLSTATE,
-            v_function_name,
-            'ERROR',
-            jsonb_build_object(
-                'auth_user_id', NEW.id,
-                'email', NEW.email,
-                'raw_user_meta_data', NEW.raw_user_meta_data
-            )
-        );
-        RAISE; -- Re-raise the exception after logging
-    END;
+    -- Log successful user creation
+    INSERT INTO public.audit_logs (
+        table_name,
+        action,
+        record_id,
+        old_data,
+        new_data,
+        performed_by,
+        performed_at
+    ) VALUES (
+        'users',
+        'INSERT',
+        NEW.id,
+        NULL,
+        jsonb_build_object(
+            'email', NEW.email,
+            'first_name', COALESCE(NEW.raw_user_meta_data->>'first_name', 'Unknown'),
+            'last_name', COALESCE(NEW.raw_user_meta_data->>'last_name', 'User')
+        ),
+        NEW.id,
+        NOW()
+    );
 
     RETURN NEW;
+EXCEPTION WHEN OTHERS THEN
+    -- Log any unexpected errors
+    INSERT INTO public.error_logs (
+        error_message,
+        error_details,
+        severity,
+        function_name,
+        user_id,
+        table_name
+    ) VALUES (
+        SQLERRM,
+        jsonb_build_object(
+            'email', NEW.email,
+            'user_id', NEW.id,
+            'error_type', 'UNEXPECTED_ERROR',
+            'raw_user_meta_data', NEW.raw_user_meta_data
+        ),
+        'ERROR',
+        'handle_new_user',
+        NEW.id,
+        'users'
+    );
+    
+    RAISE;
 END;
-$$;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
 
--- Create trigger for auth.users
+-- Create trigger for new user handling
+DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
 CREATE TRIGGER on_auth_user_created
     AFTER INSERT ON auth.users
-    FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
+    FOR EACH ROW
+    EXECUTE FUNCTION public.handle_new_user();
 
--- Grant necessary permissions
-GRANT USAGE ON SCHEMA public TO authenticated, anon, service_role;
-GRANT SELECT, INSERT, UPDATE ON public.users TO authenticated, service_role;
-GRANT SELECT, INSERT ON public.error_logs TO authenticated, service_role;
+COMMENT ON FUNCTION public.handle_new_user IS 'Handles new user creation with email validation and error logging';
 
 /**
  * Function: is_user_active
