@@ -76,8 +76,7 @@
  *    - update_timestamp() - Update timestamp trigger
  *    - initialize_default_roles() - Initialize system roles
  *
- */
-
+*/
 
 -- ========================================================================================
 --
@@ -124,132 +123,148 @@ DROP FUNCTION IF EXISTS public.handle_new_user();
 
 -- Create the function to handle new user creation
 CREATE OR REPLACE FUNCTION public.handle_new_user()
-RETURNS TRIGGER AS $$
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
 DECLARE
-    v_email_exists BOOLEAN;
-    v_error_details JSONB;
+    default_role_id UUID;
 BEGIN
-    -- Check if email already exists
-    SELECT EXISTS (
-        SELECT 1 
-        FROM public.users 
-        WHERE email = NEW.email 
-        AND id != NEW.id
-        AND deleted_at IS NULL
-    ) INTO v_email_exists;
+    -- Get the default role ID (standard_user is the default role type)
+    SELECT id INTO default_role_id
+    FROM public.roles
+    WHERE type = 'standard_user'::role_type
+    AND is_active = true
+    AND deleted_at IS NULL
+    LIMIT 1;
 
-    -- If email exists, log error and abort
-    IF v_email_exists THEN
-        v_error_details := jsonb_build_object(
-            'email', NEW.email,
-            'user_id', NEW.id,
-            'error_type', 'DUPLICATE_EMAIL'
-        );
-        
-        INSERT INTO public.error_logs (
-            error_message,
-            error_details,
-            severity,
-            function_name,
-            user_id,
-            table_name
-        ) VALUES (
-            'Cannot create user: Email already exists',
-            v_error_details,
-            'ERROR',
-            'handle_new_user',
-            NEW.id,
-            'users'
-        );
-        
-        RAISE EXCEPTION 'Email % already exists', NEW.email;
-    END IF;
-
-    -- Insert new user with validated data
-    INSERT INTO public.users (
+    -- Create the user profile
+    INSERT INTO public.profiles (
         id,
         email,
         first_name,
         last_name,
         display_name,
+        avatar_url,
         status,
+        preferred_language,
+        timezone,
+        is_active,
+        onboarding_completed,
+        onboarding_step,
+        email_verified,
+        terms_accepted,
+        privacy_accepted,
+        marketing_consent,
+        two_factor_enabled,
+        last_login_at,
         created_at,
-        updated_at,
-        version
+        updated_at
     ) VALUES (
         NEW.id,
         NEW.email,
         COALESCE(NEW.raw_user_meta_data->>'first_name', 'Unknown'),
         COALESCE(NEW.raw_user_meta_data->>'last_name', 'User'),
         COALESCE(NEW.raw_user_meta_data->>'display_name', 
-                 NEW.raw_user_meta_data->>'first_name' || ' ' || 
-                 NEW.raw_user_meta_data->>'last_name',
-                 NEW.email),
-        'active',
+                 COALESCE(NEW.raw_user_meta_data->>'first_name', 'Unknown') || ' ' || 
+                 COALESCE(NEW.raw_user_meta_data->>'last_name', 'User')),
+        COALESCE(NEW.raw_user_meta_data->>'avatar_url', ''),
+        'pending',
+        COALESCE(NEW.raw_user_meta_data->>'language', 'en'),
+        COALESCE(NEW.raw_user_meta_data->>'timezone', 'UTC'),
+        true,
+        false,
+        1,
+        COALESCE(NEW.email_confirmed_at IS NOT NULL, false),
+        false,
+        false,
+        false,
+        false,
+        NEW.last_sign_in_at,
         NOW(),
-        NOW(),
-        1
-    );
-
-    -- Log successful user creation
-    INSERT INTO public.audit_logs (
-        table_name,
-        action,
-        record_id,
-        old_data,
-        new_data,
-        performed_by,
-        performed_at
-    ) VALUES (
-        'users',
-        'INSERT',
-        NEW.id,
-        NULL,
-        jsonb_build_object(
-            'email', NEW.email,
-            'first_name', COALESCE(NEW.raw_user_meta_data->>'first_name', 'Unknown'),
-            'last_name', COALESCE(NEW.raw_user_meta_data->>'last_name', 'User')
-        ),
-        NEW.id,
         NOW()
     );
 
-    RETURN NEW;
-EXCEPTION WHEN OTHERS THEN
-    -- Log any unexpected errors
-    INSERT INTO public.error_logs (
-        error_message,
-        error_details,
-        severity,
-        function_name,
+    -- Create default user preferences
+    INSERT INTO public.user_preferences (
         user_id,
-        table_name
+        theme,
+        display_density,
+        sidebar_collapsed,
+        email_notifications,
+        sms_notifications,
+        push_notifications,
+        in_app_notifications,
+        weekly_digest,
+        marketing_emails,
+        created_at,
+        updated_at
     ) VALUES (
-        SQLERRM,
-        jsonb_build_object(
-            'email', NEW.email,
-            'user_id', NEW.id,
-            'error_type', 'UNEXPECTED_ERROR',
-            'raw_user_meta_data', NEW.raw_user_meta_data
-        ),
-        'ERROR',
-        'handle_new_user',
         NEW.id,
-        'users'
+        'system',                -- Default theme follows system
+        'comfortable',           -- Default display density
+        false,                   -- Sidebar expanded by default
+        true,                    -- Email notifications enabled
+        false,                   -- SMS notifications disabled
+        true,                    -- Push notifications enabled
+        true,                    -- In-app notifications enabled
+        true,                    -- Weekly digest enabled
+        false,                   -- Marketing emails disabled
+        NOW(),
+        NOW()
     );
-    
-    RAISE;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
 
--- Create trigger for new user handling
+    -- Assign default role if available
+    IF default_role_id IS NOT NULL THEN
+        INSERT INTO public.user_roles (
+            user_id,
+            role_id,
+            assigned_at,
+            is_active,
+            created_at,
+            updated_at,
+            version
+        ) VALUES (
+            NEW.id,
+            default_role_id,
+            NOW(),
+            true,
+            NOW(),
+            NOW(),
+            1
+        );
+    END IF;
+
+    RETURN NEW;
+END;
+$$;
+
+-- Create trigger for handle_new_user
 DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
 CREATE TRIGGER on_auth_user_created
     AFTER INSERT ON auth.users
-    FOR EACH ROW
-    EXECUTE FUNCTION public.handle_new_user();
+    FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
 
-COMMENT ON FUNCTION public.handle_new_user IS 'Handles new user creation with email validation and error logging';
+-- Grant necessary permissions
+GRANT EXECUTE ON FUNCTION public.handle_new_user() TO service_role;
+
+
+-- Function to automatically convert username to lowercase
+CREATE OR REPLACE FUNCTION public.username_to_lowercase()
+RETURNS trigger AS $$
+BEGIN
+    NEW.username = LOWER(NEW.username);
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Trigger to ensure username is always lowercase
+CREATE TRIGGER ensure_username_lowercase
+    BEFORE INSERT OR UPDATE ON public.profiles
+    FOR EACH ROW
+    EXECUTE FUNCTION public.username_to_lowercase();
+    
 
 /**
  * Function: is_user_active
@@ -290,26 +305,6 @@ DECLARE
 BEGIN
     -- Check if user exists first
     IF NOT EXISTS (SELECT 1 FROM public.users WHERE id = p_user_id) THEN
-        -- Log a warning for non-existent user
-        INSERT INTO public.error_logs (
-            error_message,
-            severity,
-            function_name,
-            schema_name,
-            context_data,
-            user_id
-        )
-        VALUES (
-            format('User not found: %s', p_user_id),
-            'WARNING',
-            v_function_name,
-            'public',
-            jsonb_build_object(
-                'user_id', p_user_id,
-                'check_type', 'user_existence'
-            ),
-            auth.uid()
-        );
         RETURN FALSE;
     END IF;
 
@@ -329,42 +324,23 @@ BEGIN
     );
 EXCEPTION
     WHEN OTHERS THEN
-        -- Construct error context
-        v_error_context := jsonb_build_object(
-            'user_id', p_user_id,
-            'error_state', SQLSTATE,
-            'error_message', SQLERRM,
-            'stack_trace', pg_exception_context(),
-            'check_type', 'user_active_status'
-        );
-        
-        -- Log detailed error information
+        -- Log error details
         INSERT INTO public.error_logs (
             error_message,
-            error_code,
-            error_stack,
-            severity,
-            function_name,
-            schema_name,
+            error_details,
             context_data,
-            user_id,
-            ip_address,
-            user_agent
+            created_by
         )
         VALUES (
             SQLERRM,
             SQLSTATE,
-            pg_exception_context(),
-            'ERROR',
-            v_function_name,
-            'public',
-            v_error_context,
-            auth.uid(),
-            current_setting('request.headers', true)::json->>'x-forwarded-for',
-            current_setting('request.headers', true)::json->>'user-agent'
+            jsonb_build_object(
+                'user_id', p_user_id,
+                'function', 'is_user_active'
+            ),
+            auth.uid()
         );
-        
-        RETURN FALSE;
+        RAISE;
 END;
 $$;
 
@@ -487,18 +463,29 @@ BEGIN
             -- Log error details
             INSERT INTO public.error_logs (
                 error_message,
-                error_details,
+                error_code,
+                error_stack,
+                severity,
+                function_name,
+                schema_name,
                 context_data,
-                created_by
+                user_id,
+                ip_address,
+                user_agent
             )
             VALUES (
                 SQLERRM,
                 SQLSTATE,
+                pg_exception_context(),
+                'ERROR',
+                'soft_delete_user',
+                'public',
                 jsonb_build_object(
-                    'user_id', p_user_id,
-                    'function', 'soft_delete_user'
+                    'user_id', p_user_id
                 ),
-                auth.uid()
+                auth.uid(),
+                current_setting('request.headers', true)::json->>'x-forwarded-for',
+                current_setting('request.headers', true)::json->>'user-agent'
             );
             RAISE;
     END;
@@ -628,18 +615,29 @@ BEGIN
             -- Log error details
             INSERT INTO public.error_logs (
                 error_message,
-                error_details,
+                error_code,
+                error_stack,
+                severity,
+                function_name,
+                schema_name,
                 context_data,
-                created_by
+                user_id,
+                ip_address,
+                user_agent
             )
             VALUES (
                 SQLERRM,
                 SQLSTATE,
+                pg_exception_context(),
+                'ERROR',
+                'restore_deleted_user',
+                'public',
                 jsonb_build_object(
-                    'user_id', p_user_id,
-                    'function', 'restore_deleted_user'
+                    'user_id', p_user_id
                 ),
-                auth.uid()
+                auth.uid(),
+                current_setting('request.headers', true)::json->>'x-forwarded-for',
+                current_setting('request.headers', true)::json->>'user-agent'
             );
             RAISE;
     END;
@@ -2055,7 +2053,7 @@ DROP FUNCTION IF EXISTS public.handle_user_role_change() CASCADE;
  *   - Error Handling:
  *     * Comprehensive error logging
  *     * Detailed error messages
- *     * Transaction management
+ *     - Transaction management
  *   
  *   - Integration:
  *     * Works with user_roles table
@@ -4038,6 +4036,7 @@ CREATE TRIGGER audit_trigger
 CREATE TRIGGER audit_trigger
     AFTER INSERT OR UPDATE OR DELETE ON public.user_addresses
     FOR EACH ROW EXECUTE FUNCTION public.process_audit();
+
 /**
  * Function: log_audit_event
  *
@@ -4062,7 +4061,7 @@ CREATE TRIGGER audit_trigger
  *   SELECT public.log_audit_event(
  *     'users',
  *     'update',
- *     '123e4567-e89b-12d3-a456-426614174000'::UUID,
+ *     '123e4567-e89b-12d3-a456-426614174000',
  *     '{"name": "John Doe"}'::JSONB,
  *     '{"name": "Jane Doe"}'::JSONB,
  *     '{"reason": "Name change request"}'::JSONB
@@ -4177,25 +4176,35 @@ BEGIN
     RETURN v_audit_id;
 
 EXCEPTION WHEN OTHERS THEN
-    -- Log error to a separate error_logs table if available
+    -- Log the error but allow the original operation to proceed
     BEGIN
         INSERT INTO public.error_logs (
             error_message,
-            error_details,
+            error_code,
+            error_stack,
+            severity,
             function_name,
-            created_at
+            schema_name,
+            context_data,
+            user_id,
+            ip_address,
+            user_agent
         )
         VALUES (
+            'Audit logging failed',
+            SQLSTATE,
             SQLERRM,
+            'ERROR',
+            'log_audit_event',
+            'public',
             jsonb_build_object(
                 'table_name', p_table_name,
-                'action', p_action,
                 'record_id', p_record_id,
-                'user_id', v_current_user,
-                'stack', substr(pg_exception_context(), 1, 500)
+                'action', p_action
             ),
-            'log_audit_event',
-            v_current_timestamp
+            auth.uid(),
+            current_setting('request.headers', true)::json->>'x-forwarded-for',
+            current_setting('request.headers', true)::json->>'user-agent'
         );
     EXCEPTION WHEN OTHERS THEN
         RAISE WARNING 'Failed to log error: %', SQLERRM;
@@ -4226,7 +4235,7 @@ $$;
  *
  * Example Usage:
  *   SELECT public.log_activity(
- *     '123e4567-e89b-12d3-a456-426614174000'::UUID,
+ *     '123e4567-e89b-12d3-a456-426614174000',
  *     'login',
  *     'User logged in successfully',
  *     '{"browser": "Chrome", "device": "desktop"}'::JSONB
@@ -4335,8 +4344,12 @@ BEGIN
             TG_TABLE_NAME::TEXT,
             OLD.id,
             'ID_MODIFICATION_ATTEMPT',
-            jsonb_build_object('old_id', OLD.id),
-            jsonb_build_object('attempted_new_id', NEW.id),
+            jsonb_build_object(
+                'old_id', OLD.id
+            ),
+            jsonb_build_object(
+                'attempted_new_id', NEW.id
+            ),
             auth.uid()
         );
         
@@ -4542,3 +4555,4 @@ CREATE TRIGGER set_timestamp
 CREATE TRIGGER set_timestamp 
     BEFORE UPDATE ON public.user_addresses
     FOR EACH ROW EXECUTE FUNCTION public.update_timestamp();
+

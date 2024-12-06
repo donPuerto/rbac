@@ -5,7 +5,124 @@
 -- Version: 1.0
 -- Last Updated: 2024
 -- Author: Don Puerto
+-- =====================================================================================-- Table of Contents
 -- =====================================================================================
+-- 1. Enum Types (01_enum.sql)
+--    - role_type            (Hierarchical role types)
+--
+-- 2. Core Tables (02_tables.sql)
+--    - users                (Core user information and profile data)
+--    - roles                (System role definitions)
+--    - permissions          (Available system permissions)
+--    - user_roles           (User-role assignments)
+--    - role_permissions     (Role-permission mappings)
+--    - role_delegations     (Role management delegations)
+--    - scheduled_tasks      (Task scheduling for role expiration)
+--
+-- 3. Supporting Tables (02_tables.sql)
+--    - user_phone_numbers   (User contact information)
+--    - user_addresses       (User physical addresses)
+--    - audit_logs           (System change tracking)
+--    - user_activities      (User behavior tracking)
+--
+-- 4. Core Functions (03_functions.sql)
+--    - User Management
+--      * handle_new_user()
+--      * soft_delete_user()
+--      * restore_deleted_user()
+--      * update_user_status()
+--    - Role Management
+--      * manage_user_role()
+--      * has_any_role()
+--      * get_user_roles()
+--      * delegate_role_management()
+--    - Permission Management
+--      * has_permission()
+--      * grant_permission()
+--      * revoke_permission()
+--      * get_role_permissions()
+--    - Audit & Logging
+--      * process_audit()
+--      * log_audit_event()
+--      * log_activity()-- Table of Contents
+-- =====================================================================================
+-- 1. Enum Types (01_enum.sql)
+--    - role_type            (Hierarchical role types)
+--
+-- 2. Core Tables (02_tables.sql)
+--    - users                (Core user information and profile data)
+--    - roles                (System role definitions)
+--    - permissions          (Available system permissions)
+--    - user_roles           (User-role assignments)
+--    - role_permissions     (Role-permission mappings)
+--    - role_delegations     (Role management delegations)
+--    - scheduled_tasks      (Task scheduling for role expiration)
+--
+-- 3. Supporting Tables (02_tables.sql)
+--    - user_phone_numbers   (User contact information)
+--    - user_addresses       (User physical addresses)
+--    - audit_logs           (System change tracking)
+--    - user_activities      (User behavior tracking)
+--
+-- 4. Core Functions (03_functions.sql)
+--    - User Management
+--      * handle_new_user()
+--      * soft_delete_user()
+--      * restore_deleted_user()
+--      * update_user_status()
+--    - Role Management
+--      * manage_user_role()
+--      * has_any_role()
+--      * get_user_roles()
+--      * delegate_role_management()
+--    - Permission Management
+--      * has_permission()
+--      * grant_permission()
+--      * revoke_permission()
+--      * get_role_permissions()
+--    - Audit & Logging
+--      * process_audit()
+--      * log_audit_event()
+--      * log_activity()-- Table of Contents
+-- =====================================================================================
+-- 1. Enum Types (01_enum.sql)
+--    - role_type            (Hierarchical role types)
+--
+-- 2. Core Tables (02_tables.sql)
+--    - users                (Core user information and profile data)
+--    - roles                (System role definitions)
+--    - permissions          (Available system permissions)
+--    - user_roles           (User-role assignments)
+--    - role_permissions     (Role-permission mappings)
+--    - role_delegations     (Role management delegations)
+--    - scheduled_tasks      (Task scheduling for role expiration)
+--
+-- 3. Supporting Tables (02_tables.sql)
+--    - user_phone_numbers   (User contact information)
+--    - user_addresses       (User physical addresses)
+--    - audit_logs           (System change tracking)
+--    - user_activities      (User behavior tracking)
+--
+-- 4. Core Functions (03_functions.sql)
+--    - User Management
+--      * handle_new_user()
+--      * soft_delete_user()
+--      * restore_deleted_user()
+--      * update_user_status()
+--    - Role Management
+--      * manage_user_role()
+--      * has_any_role()
+--      * get_user_roles()
+--      * delegate_role_management()
+--    - Permission Management
+--      * has_permission()
+--      * grant_permission()
+--      * revoke_permission()
+--      * get_role_permissions()
+--    - Audit & Logging
+--      * process_audit()
+--      * log_audit_event()
+--      * log_activity()
 
 -- Revoke Grants and Permissions
 -- =====================================================================================
