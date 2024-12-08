@@ -63,22 +63,58 @@
 
 -- Drop statements for clean setup
 -- =====================================================================================
+
+-- Drop Core User Tables
 DROP TABLE IF EXISTS public.profiles CASCADE;
 DROP TABLE IF EXISTS public.user_security_settings CASCADE;
 DROP TABLE IF EXISTS public.user_preferences CASCADE;
 DROP TABLE IF EXISTS public.user_onboarding CASCADE;
-DROP TABLE IF EXISTS public.user_activities CASCADE;
-DROP TABLE IF EXISTS public.audit_logs CASCADE;
 DROP TABLE IF EXISTS public.user_addresses CASCADE;
 DROP TABLE IF EXISTS public.user_phone_numbers CASCADE;
-DROP TABLE IF EXISTS public.tasks CASCADE;
-DROP TABLE IF EXISTS public.crm_automations CASCADE;
+
+-- Drop RBAC Tables
 DROP TABLE IF EXISTS public.role_delegations CASCADE;
 DROP TABLE IF EXISTS public.role_permissions CASCADE;
 DROP TABLE IF EXISTS public.user_roles CASCADE;
 DROP TABLE IF EXISTS public.permissions CASCADE;
 DROP TABLE IF EXISTS public.roles CASCADE;
+
+-- Drop System Tables
 DROP TABLE IF EXISTS public.error_logs CASCADE;
+DROP TABLE IF EXISTS public.audit_logs CASCADE;
+DROP TABLE IF EXISTS public.user_activities CASCADE;
+
+-- Drop CRM Core Tables
+DROP TABLE IF EXISTS public.crm_leads CASCADE;
+DROP TABLE IF EXISTS public.crm_contacts CASCADE;
+DROP TABLE IF EXISTS public.crm_opportunities CASCADE;
+DROP TABLE IF EXISTS public.crm_quotes CASCADE;
+DROP TABLE IF EXISTS public.crm_jobs CASCADE;
+
+-- Drop CRM Support Tables
+DROP TABLE IF EXISTS public.crm_products CASCADE;
+DROP TABLE IF EXISTS public.crm_pipelines CASCADE;
+DROP TABLE IF EXISTS public.crm_communications CASCADE;
+DROP TABLE IF EXISTS public.crm_documents CASCADE;
+DROP TABLE IF EXISTS public.crm_relationships CASCADE;
+DROP TABLE IF EXISTS public.crm_notes CASCADE;
+DROP TABLE IF EXISTS public.crm_automations CASCADE;
+
+-- Drop Task Management Tables
+DROP TABLE IF EXISTS public.tasks CASCADE;
+
+-- Drop Inventory Management Tables
+DROP TABLE IF EXISTS public.inventory_locations CASCADE;
+DROP TABLE IF EXISTS public.inventory_items CASCADE;
+DROP TABLE IF EXISTS public.inventory_transactions CASCADE;
+DROP TABLE IF EXISTS public.purchase_orders CASCADE;
+DROP TABLE IF EXISTS public.purchase_order_items CASCADE;
+
+-- Drop Accounting Tables
+DROP TABLE IF EXISTS public.chart_of_accounts CASCADE;
+DROP TABLE IF EXISTS public.journal_entries CASCADE;
+DROP TABLE IF EXISTS public.journal_entry_lines CASCADE;
+DROP TABLE IF EXISTS public.payment_transactions CASCADE;
 
 -- =====================================================================================
 -- Core Tables
@@ -86,6 +122,14 @@ DROP TABLE IF EXISTS public.error_logs CASCADE;
 
 -- Profiles table: Stores core user information and profile data
 -- =====================================================================================
+-- Drop existing indexes
+DROP INDEX IF EXISTS public.idx_profiles_email;
+DROP INDEX IF EXISTS public.idx_profiles_username;
+DROP INDEX IF EXISTS public.idx_profiles_status;
+DROP INDEX IF EXISTS public.idx_profiles_company;
+DROP INDEX IF EXISTS public.idx_profiles_department;
+DROP INDEX IF EXISTS public.idx_profiles_created_at;
+
 CREATE TABLE public.profiles (
     -- Primary identification (matches auth.users)
     id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
@@ -145,6 +189,13 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON public.profiles TO service_role;
 
 -- User Security Settings table: Manages all security-related aspects of user accounts
 -- =====================================================================================
+-- Drop existing indexes
+DROP INDEX IF EXISTS public.idx_user_security_settings_user_id;
+DROP INDEX IF EXISTS public.idx_user_security_settings_email_verified;
+DROP INDEX IF EXISTS public.idx_user_security_settings_last_login;
+DROP INDEX IF EXISTS public.idx_user_security_settings_failed_attempts;
+DROP INDEX IF EXISTS public.idx_user_security_settings_locked_until;
+
 CREATE TABLE public.user_security_settings (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
@@ -175,9 +226,7 @@ CREATE TABLE public.user_security_settings (
     updated_by UUID REFERENCES auth.users(id),
     deleted_at TIMESTAMPTZ,
     deleted_by UUID REFERENCES auth.users(id),
-    version INTEGER DEFAULT 1 NOT NULL,
-
-    UNIQUE(user_id, deleted_at)
+    version INTEGER DEFAULT 1 NOT NULL
 );
 
 -- Indexes for user_security_settings
@@ -291,22 +340,32 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON public.user_onboarding TO service_role;
 -- RBAC Tables
 -- =====================================================================================
 
--- Roles table: Core system roles
+-- Roles table: Defines the available roles in the system
+-- =====================================================================================
 CREATE TABLE public.roles (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    name TEXT NOT NULL UNIQUE,
+    name TEXT NOT NULL,
     description TEXT,
-    type enums.role_type NOT NULL,
-    is_system_role BOOLEAN DEFAULT false,
+    type enums.role_type NOT NULL DEFAULT 'custom',
+    is_system BOOLEAN DEFAULT false,
     is_active BOOLEAN DEFAULT true,
+    permissions TEXT[] DEFAULT ARRAY[]::TEXT[],
+    metadata JSONB DEFAULT '{}'::JSONB,
+    
+    -- Audit fields
     created_at TIMESTAMPTZ DEFAULT now() NOT NULL,
     created_by UUID REFERENCES auth.users(id),
     updated_at TIMESTAMPTZ DEFAULT now() NOT NULL,
     updated_by UUID REFERENCES auth.users(id),
     deleted_at TIMESTAMPTZ,
     deleted_by UUID REFERENCES auth.users(id),
+    version INTEGER DEFAULT 1 NOT NULL,
+    
     UNIQUE(name, deleted_at)
 );
+
+-- Comments
+COMMENT ON TABLE public.roles IS 'Defines the available roles in the system';
 
 -- Indexes
 CREATE INDEX idx_roles_name ON public.roles(name) WHERE deleted_at IS NULL;
@@ -315,95 +374,108 @@ CREATE INDEX idx_roles_is_active ON public.roles(is_active) WHERE deleted_at IS 
 
 -- Grants
 GRANT SELECT ON public.roles TO authenticated;
-GRANT ALL ON public.roles TO service_role;
-
-COMMENT ON TABLE public.roles IS 'Core system role definitions';
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.roles TO service_role;
 
 -- Permissions table: Available system permissions
+-- =====================================================================================
 CREATE TABLE public.permissions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    name TEXT NOT NULL UNIQUE,
+    name TEXT NOT NULL,
     description TEXT,
-    resource TEXT NOT NULL,
-    action TEXT NOT NULL,
-    is_system_permission BOOLEAN DEFAULT false,
+    category TEXT,
+    is_system BOOLEAN DEFAULT false,
     is_active BOOLEAN DEFAULT true,
+    metadata JSONB DEFAULT '{}'::JSONB,
+    
+    -- Audit fields
     created_at TIMESTAMPTZ DEFAULT now() NOT NULL,
     created_by UUID REFERENCES auth.users(id),
     updated_at TIMESTAMPTZ DEFAULT now() NOT NULL,
     updated_by UUID REFERENCES auth.users(id),
     deleted_at TIMESTAMPTZ,
     deleted_by UUID REFERENCES auth.users(id),
-    version INTEGER DEFAULT 1 NOT NULL
+    version INTEGER DEFAULT 1 NOT NULL,
+    
+    UNIQUE(name, deleted_at)
 );
+
+-- Comments
+COMMENT ON TABLE public.permissions IS 'Defines available system permissions';
 
 -- Indexes
 CREATE INDEX idx_permissions_name ON public.permissions(name) WHERE deleted_at IS NULL;
-CREATE INDEX idx_permissions_resource_action ON public.permissions(resource, action) WHERE deleted_at IS NULL;
+CREATE INDEX idx_permissions_category ON public.permissions(category) WHERE deleted_at IS NULL;
 CREATE INDEX idx_permissions_is_active ON public.permissions(is_active) WHERE deleted_at IS NULL;
 
 -- Grants
 GRANT SELECT ON public.permissions TO authenticated;
-GRANT ALL ON public.permissions TO service_role;
-
-COMMENT ON TABLE public.permissions IS 'Available system permissions';
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.permissions TO service_role;
 
 -- User Roles table: Maps users to roles
+-- =====================================================================================
 CREATE TABLE public.user_roles (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id UUID NOT NULL REFERENCES public.profiles(id),
+    user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
     role_id UUID NOT NULL REFERENCES public.roles(id),
-    assigned_at TIMESTAMPTZ DEFAULT now() NOT NULL,
-    assigned_by UUID REFERENCES public.profiles(id),
-    is_active BOOLEAN DEFAULT true NOT NULL,
+    is_active BOOLEAN DEFAULT true,
+    metadata JSONB DEFAULT '{}'::JSONB,
+    
+    -- Audit fields
     created_at TIMESTAMPTZ DEFAULT now() NOT NULL,
-    created_by UUID REFERENCES public.profiles(id),
+    created_by UUID REFERENCES auth.users(id),
     updated_at TIMESTAMPTZ DEFAULT now() NOT NULL,
-    updated_by UUID REFERENCES public.profiles(id),
+    updated_by UUID REFERENCES auth.users(id),
     deleted_at TIMESTAMPTZ,
-    deleted_by UUID REFERENCES public.profiles(id),
+    deleted_by UUID REFERENCES auth.users(id),
     version INTEGER DEFAULT 1 NOT NULL,
+    
     UNIQUE(user_id, role_id, deleted_at)
 );
 
+-- Comments
+COMMENT ON TABLE public.user_roles IS 'Maps users to their assigned roles';
+
 -- Indexes
-CREATE INDEX idx_user_roles_user_id ON public.user_roles(user_id) WHERE deleted_at IS NULL;
-CREATE INDEX idx_user_roles_role_id ON public.user_roles(role_id) WHERE deleted_at IS NULL;
+CREATE INDEX idx_user_roles_user ON public.user_roles(user_id) WHERE deleted_at IS NULL;
+CREATE INDEX idx_user_roles_role ON public.user_roles(role_id) WHERE deleted_at IS NULL;
 CREATE INDEX idx_user_roles_is_active ON public.user_roles(is_active) WHERE deleted_at IS NULL;
 
 -- Grants
 GRANT SELECT ON public.user_roles TO authenticated;
-GRANT ALL ON public.user_roles TO service_role;
-
-COMMENT ON TABLE public.user_roles IS 'User to role assignments';
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.user_roles TO service_role;
 
 -- Role Permissions table: Maps roles to permissions
+-- =====================================================================================
 CREATE TABLE public.role_permissions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    role_id UUID NOT NULL REFERENCES public.roles(id) ON DELETE CASCADE,
-    permission_id UUID NOT NULL REFERENCES public.permissions(id) ON DELETE CASCADE,
-    granted_at TIMESTAMPTZ DEFAULT now() NOT NULL,
-    granted_by UUID REFERENCES public.profiles(id),
+    role_id UUID NOT NULL REFERENCES public.roles(id),
+    permission_id UUID NOT NULL REFERENCES public.permissions(id),
     is_active BOOLEAN DEFAULT true,
+    metadata JSONB DEFAULT '{}'::JSONB,
+    
+    -- Audit fields
     created_at TIMESTAMPTZ DEFAULT now() NOT NULL,
-    created_by UUID REFERENCES public.profiles(id),
+    created_by UUID REFERENCES auth.users(id),
     updated_at TIMESTAMPTZ DEFAULT now() NOT NULL,
-    updated_by UUID REFERENCES public.profiles(id),
+    updated_by UUID REFERENCES auth.users(id),
     deleted_at TIMESTAMPTZ,
-    deleted_by UUID REFERENCES public.profiles(id),
+    deleted_by UUID REFERENCES auth.users(id),
+    version INTEGER DEFAULT 1 NOT NULL,
+    
     UNIQUE(role_id, permission_id, deleted_at)
 );
 
+-- Comments
+COMMENT ON TABLE public.role_permissions IS 'Maps roles to their assigned permissions';
+
 -- Indexes
-CREATE INDEX idx_role_permissions_role_id ON public.role_permissions(role_id) WHERE deleted_at IS NULL;
-CREATE INDEX idx_role_permissions_permission_id ON public.role_permissions(permission_id) WHERE deleted_at IS NULL;
-CREATE INDEX idx_role_permissions_granted_at ON public.role_permissions(granted_at) WHERE deleted_at IS NULL;
+CREATE INDEX idx_role_permissions_role ON public.role_permissions(role_id) WHERE deleted_at IS NULL;
+CREATE INDEX idx_role_permissions_permission ON public.role_permissions(permission_id) WHERE deleted_at IS NULL;
+CREATE INDEX idx_role_permissions_is_active ON public.role_permissions(is_active) WHERE deleted_at IS NULL;
 
 -- Grants
 GRANT SELECT ON public.role_permissions TO authenticated;
-GRANT ALL ON public.role_permissions TO service_role;
-
-COMMENT ON TABLE public.role_permissions IS 'Role to permission mappings';
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.role_permissions TO service_role;
 
 -- Role Delegations table: Tracks role management delegations
 CREATE TABLE public.role_delegations (

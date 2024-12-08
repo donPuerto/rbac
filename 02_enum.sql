@@ -15,6 +15,7 @@
 --    - role_type             (User role types)
 --    - address_type          (Address classification)
 --    - phone_type            (Phone number types)
+--    - mfa_type              (Multi-factor authentication types)
 
 -- 2. CRM Enums
 --    - customer_segment_type  (Customer categorization)
@@ -27,60 +28,60 @@
 --    - pipeline_stage        (Sales pipeline stages)
 --    - communication_channel (Communication methods)
 --    - product_category      (Product classifications)
+--    - document_category     (Document types)
 
 -- 3. Task Management Enums
 --    - task_type             (Task categories)
 --    - task_status           (Task progression states)
 --    - task_priority         (Task importance levels)
 
--- 4. Campaign Management Enums
---    - campaign_type         (Campaign categories)
---    - campaign_status       (Campaign states)
-
--- 5. Inventory and Purchase Enums
+-- 4. Inventory and Purchase Enums
 --    - inventory_transaction_type (Stock movement types)
 --    - inventory_location_type   (Storage location types)
 --    - purchase_order_status     (PO progression states)
 
--- 6. Accounting and Payment Enums
+-- 5. Accounting and Payment Enums
 --    - payment_status        (Payment progression states)
 --    - payment_method        (Payment methods)
 --    - account_type          (Chart of accounts types)
 --    - tax_type             (Tax classification)
+--    - journal_entry_type    (Types of journal entries)
 
--- Drop all existing enum types in reverse order of dependency
+-- Drop all existing enum types
 -- =====================================================================================
 DO $$ BEGIN
-    -- Drop custom types if they exist
-    DROP TYPE IF EXISTS customer_segment_type CASCADE;
-    DROP TYPE IF EXISTS campaign_status_type CASCADE;
-    DROP TYPE IF EXISTS campaign_type CASCADE;
-    DROP TYPE IF EXISTS task_status_type CASCADE;
-    DROP TYPE IF EXISTS task_type CASCADE;
-    DROP TYPE IF EXISTS address_type CASCADE;
-    DROP TYPE IF EXISTS phone_type CASCADE;
-    DROP TYPE IF EXISTS status_type CASCADE;
-    DROP TYPE IF EXISTS gender_type CASCADE;
-    DROP TYPE IF EXISTS role_type CASCADE;
-    DROP TYPE IF EXISTS lead_status CASCADE;
-    DROP TYPE IF EXISTS opportunity_status CASCADE;
-    DROP TYPE IF EXISTS quote_status CASCADE;
-    DROP TYPE IF EXISTS job_status CASCADE;
-    DROP TYPE IF EXISTS job_priority CASCADE;
-    DROP TYPE IF EXISTS crm_entity_type CASCADE;
-    DROP TYPE IF EXISTS public.task_type CASCADE;
-    DROP TYPE IF EXISTS public.task_priority CASCADE;
-    DROP TYPE IF EXISTS public.task_status CASCADE;
+    DROP TYPE IF EXISTS public.gender_type CASCADE;
+    DROP TYPE IF EXISTS public.status_type CASCADE;
+    DROP TYPE IF EXISTS public.role_type CASCADE;
+    DROP TYPE IF EXISTS public.address_type CASCADE;
+    DROP TYPE IF EXISTS public.phone_type CASCADE;
+    DROP TYPE IF EXISTS public.mfa_type CASCADE;
+    
+    DROP TYPE IF EXISTS public.customer_segment_type CASCADE;
+    DROP TYPE IF EXISTS public.lead_status CASCADE;
+    DROP TYPE IF EXISTS public.opportunity_status CASCADE;
+    DROP TYPE IF EXISTS public.quote_status CASCADE;
+    DROP TYPE IF EXISTS public.job_status CASCADE;
+    DROP TYPE IF EXISTS public.job_priority CASCADE;
+    DROP TYPE IF EXISTS public.crm_entity_type CASCADE;
     DROP TYPE IF EXISTS public.pipeline_stage CASCADE;
     DROP TYPE IF EXISTS public.communication_channel CASCADE;
     DROP TYPE IF EXISTS public.product_category CASCADE;
+    DROP TYPE IF EXISTS public.document_category CASCADE;
+    
+    DROP TYPE IF EXISTS public.task_type CASCADE;
+    DROP TYPE IF EXISTS public.task_status CASCADE;
+    DROP TYPE IF EXISTS public.task_priority CASCADE;
+    
     DROP TYPE IF EXISTS public.inventory_transaction_type CASCADE;
     DROP TYPE IF EXISTS public.inventory_location_type CASCADE;
     DROP TYPE IF EXISTS public.purchase_order_status CASCADE;
+    
     DROP TYPE IF EXISTS public.payment_status CASCADE;
     DROP TYPE IF EXISTS public.payment_method CASCADE;
     DROP TYPE IF EXISTS public.account_type CASCADE;
     DROP TYPE IF EXISTS public.tax_type CASCADE;
+    DROP TYPE IF EXISTS public.journal_entry_type CASCADE;
 EXCEPTION
     WHEN OTHERS THEN NULL;
 END $$;
@@ -103,7 +104,8 @@ END $$;
 --   8. support_specialist - Customer support
 --   9. standard_user      - Regular user access
 --   10. guest_user        - Limited access
-CREATE TYPE role_type AS ENUM (
+
+CREATE TYPE public.role_type AS ENUM (
     'super_admin',         -- Complete system control
     'system_admin',        -- System-wide administration
     'sales_director',      -- Oversees all sales operations
@@ -119,45 +121,54 @@ CREATE TYPE role_type AS ENUM (
     'standard_user',       -- Regular user access
     'guest_user'          -- Limited access
 );
-COMMENT ON TYPE role_type IS 'Hierarchical role types for CRM RBAC system';
+COMMENT ON TYPE public.role_type IS 'Hierarchical role types for CRM RBAC system';
 
 -- Gender Types
-CREATE TYPE gender_type AS ENUM (
+CREATE TYPE public.gender_type AS ENUM (
     'male',
     'female',
     'other',
     'prefer_not_to_say'
 );
-COMMENT ON TYPE gender_type IS 'Gender options for user profiles';
+COMMENT ON TYPE public.gender_type IS 'Gender options for user profiles';
 
 -- Status Types
-CREATE TYPE status_type AS ENUM (
+CREATE TYPE public.status_type AS ENUM (
     'active',
     'inactive',
     'suspended',
     'pending'
 );
-COMMENT ON TYPE status_type IS 'General status options for various entities';
+COMMENT ON TYPE public.status_type IS 'General status options for various entities';
 
 -- Phone Types
-CREATE TYPE phone_type AS ENUM (
+CREATE TYPE public.phone_type AS ENUM (
     'mobile',
     'work',
     'home',
     'fax',
     'other'
 );
-COMMENT ON TYPE phone_type IS 'Types of phone numbers';
+COMMENT ON TYPE public.phone_type IS 'Types of phone numbers';
 
 -- Address Types
-CREATE TYPE address_type AS ENUM (
+CREATE TYPE public.address_type AS ENUM (
     'home',
     'work',
     'billing',
     'shipping',
     'other'
 );
-COMMENT ON TYPE address_type IS 'Types of addresses';
+COMMENT ON TYPE public.address_type IS 'Types of addresses';
+
+-- MFA Types
+CREATE TYPE public.mfa_type AS ENUM (
+    'sms',
+    'email',
+    'authenticator',
+    'biometric'
+);
+COMMENT ON TYPE public.mfa_type IS 'Multi-factor authentication types';
 
 -- CRM Entity Type Enum
 CREATE TYPE public.crm_entity_type AS ENUM (
@@ -244,6 +255,17 @@ CREATE TYPE public.product_category AS ENUM (
 );
 COMMENT ON TYPE public.product_category IS 'Product categories';
 
+-- Document Category Enum
+CREATE TYPE public.document_category AS ENUM (
+    'contract',
+    'invoice',
+    'quote',
+    'proposal',
+    'report',
+    'other'
+);
+COMMENT ON TYPE public.document_category IS 'Document types';
+
 -- Customer Segment Types
 CREATE TYPE public.customer_segment_type AS ENUM (
     'enterprise',
@@ -255,7 +277,7 @@ CREATE TYPE public.customer_segment_type AS ENUM (
 COMMENT ON TYPE public.customer_segment_type IS 'Customer segmentation categories';
 
 -- Campaign Types
-CREATE TYPE campaign_type AS ENUM (
+CREATE TYPE public.campaign_type AS ENUM (
     'email_campaign',
     'sms_campaign',
     'social_media',
@@ -267,10 +289,10 @@ CREATE TYPE campaign_type AS ENUM (
     'customer_onboarding',
     'retention_campaign'
 );
-COMMENT ON TYPE campaign_type IS 'Types of marketing campaigns';
+COMMENT ON TYPE public.campaign_type IS 'Types of marketing campaigns';
 
 -- Campaign Status Types
-CREATE TYPE campaign_status_type AS ENUM (
+CREATE TYPE public.campaign_status_type AS ENUM (
     'draft',
     'scheduled',
     'active',
@@ -278,7 +300,7 @@ CREATE TYPE campaign_status_type AS ENUM (
     'completed',
     'cancelled'
 );
-COMMENT ON TYPE campaign_status_type IS 'Status options for marketing campaigns';
+COMMENT ON TYPE public.campaign_status_type IS 'Status options for marketing campaigns';
 
 -- CRM Status Enums
 CREATE TYPE public.lead_status AS ENUM (
@@ -397,3 +419,12 @@ CREATE TYPE public.tax_type AS ENUM (
     'exempt'
 );
 COMMENT ON TYPE public.tax_type IS 'Tax classification types';
+
+CREATE TYPE public.journal_entry_type AS ENUM (
+    'asset',
+    'liability',
+    'equity',
+    'revenue',
+    'expense'
+);
+COMMENT ON TYPE public.journal_entry_type IS 'Types of journal entries';
