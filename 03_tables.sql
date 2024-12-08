@@ -131,61 +131,71 @@ DROP INDEX IF EXISTS public.idx_profiles_department;
 DROP INDEX IF EXISTS public.idx_profiles_created_at;
 
 CREATE TABLE public.profiles (
-    -- Primary identification (matches auth.users)
-    id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
-    email TEXT NOT NULL UNIQUE,
-    username TEXT UNIQUE CHECK (
-        -- Must start with @
-        username LIKE '@%' AND
-        -- Must be between 3 and 30 characters (including @)
-        length(username) BETWEEN 3 AND 30 AND
-        -- Can only contain lowercase letters, numbers, and underscores after @
-        username ~ '^@[a-z0-9_]+$'
-    ),
-
-    -- Personal information
-    first_name TEXT NOT NULL,
-    last_name TEXT NOT NULL,
-    display_name TEXT,                    -- Public display name
-    date_of_birth DATE,                   -- For age verification
-    gender enums.gender_type,
-    avatar_url TEXT,                      -- Profile picture URL
+    -- Primary identification 
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL,
+    username TEXT UNIQUE,
+    full_name TEXT NOT NULL,
+    display_name TEXT,
+    avatar_url TEXT,
+    
+    -- Personal Information
+    gender TEXT,
+    date_of_birth DATE,
     bio TEXT,
     
-     -- Professional information
-    company TEXT,                         -- Company name
-    job_title TEXT,                       -- Job position
-    department TEXT,                      -- Department within company
-    industry TEXT,                        -- Industry sector
-    website TEXT,                         -- Professional website
-    customer_segment enums.customer_segment_type,
-
-    -- Account status
-    status enums.status_type NOT NULL DEFAULT 'active',
-    is_active BOOLEAN DEFAULT true,       -- Account status flag
-
+    -- Contact Information
+    email TEXT NOT NULL UNIQUE,
+    phone TEXT,
+    website TEXT,
+    
+    -- Location Information
+    timezone TEXT,
+    locale TEXT DEFAULT 'en',
+    country_code TEXT,
+    
+    -- Account Status
+    status TEXT NOT NULL DEFAULT 'active',
+    is_active BOOLEAN DEFAULT true,
+    is_verified BOOLEAN DEFAULT false,
+    
+    -- Preferences
+    theme TEXT DEFAULT 'light',
+    notifications_enabled BOOLEAN DEFAULT true,
+    marketing_consent BOOLEAN DEFAULT false,
+    
+    -- Metadata
+    metadata JSONB DEFAULT '{}'::JSONB,
+    
     -- Audit fields
     created_at TIMESTAMPTZ DEFAULT now() NOT NULL,
-    created_by UUID REFERENCES auth.users(id),
+    created_by UUID,
     updated_at TIMESTAMPTZ DEFAULT now() NOT NULL,
-    updated_by UUID REFERENCES auth.users(id),
-    deleted_at TIMESTAMPTZ,               -- Soft delete timestamp
-    deleted_by UUID REFERENCES auth.users(id),
-    version INTEGER DEFAULT 1 NOT NULL    -- Optimistic locking
+    updated_by UUID,
+    deleted_at TIMESTAMPTZ,
+    deleted_by UUID,
+    version INTEGER DEFAULT 1 NOT NULL,
+    
+    -- Constraints
+    CONSTRAINT valid_email CHECK (email ~* '^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$'),
+    CONSTRAINT valid_phone CHECK (phone IS NULL OR phone ~ '^\+?[0-9\s-\(\)]+$')
 );
-COMMENT ON TABLE public.profiles IS 'Core user information and profile data';
 
 -- Indexes for profiles
-CREATE INDEX idx_profiles_email ON public.profiles(email) WHERE deleted_at IS NULL;
+CREATE INDEX idx_profiles_user_id ON public.profiles(user_id) WHERE deleted_at IS NULL;
 CREATE INDEX idx_profiles_username ON public.profiles(username) WHERE deleted_at IS NULL;
+CREATE INDEX idx_profiles_email ON public.profiles(email) WHERE deleted_at IS NULL;
 CREATE INDEX idx_profiles_status ON public.profiles(status) WHERE deleted_at IS NULL;
-CREATE INDEX idx_profiles_company ON public.profiles(company) WHERE deleted_at IS NULL;
-CREATE INDEX idx_profiles_department ON public.profiles(department) WHERE deleted_at IS NULL;
+CREATE INDEX idx_profiles_is_active ON public.profiles(is_active) WHERE deleted_at IS NULL;
 CREATE INDEX idx_profiles_created_at ON public.profiles(created_at) WHERE deleted_at IS NULL;
+CREATE INDEX idx_profiles_updated_at ON public.profiles(updated_at) WHERE deleted_at IS NULL;
 
 -- Grants for profiles
 GRANT SELECT ON public.profiles TO authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.profiles TO service_role;
+
+-- Comments
+COMMENT ON TABLE public.profiles IS 'Core user profile information';
 
 -- User Security Settings table: Manages all security-related aspects of user accounts
 -- =====================================================================================
@@ -198,7 +208,7 @@ DROP INDEX IF EXISTS public.idx_user_security_settings_locked_until;
 
 CREATE TABLE public.user_security_settings (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+    user_id UUID NOT NULL,
     
     -- Security settings
     two_factor_enabled BOOLEAN DEFAULT false,
@@ -221,11 +231,11 @@ CREATE TABLE public.user_security_settings (
     
     -- Audit fields
     created_at TIMESTAMPTZ DEFAULT now() NOT NULL,
-    created_by UUID REFERENCES auth.users(id),
+    created_by UUID,
     updated_at TIMESTAMPTZ DEFAULT now() NOT NULL,
-    updated_by UUID REFERENCES auth.users(id),
+    updated_by UUID,
     deleted_at TIMESTAMPTZ,
-    deleted_by UUID REFERENCES auth.users(id),
+    deleted_by UUID,
     version INTEGER DEFAULT 1 NOT NULL
 );
 
@@ -244,7 +254,7 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON public.user_security_settings TO service
 -- =====================================================================================
 CREATE TABLE public.user_preferences (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+    user_id UUID NOT NULL,
     
     -- Language and locale
     preferred_language TEXT DEFAULT 'en',
@@ -269,11 +279,11 @@ CREATE TABLE public.user_preferences (
     
      -- Audit fields
     created_at TIMESTAMPTZ DEFAULT now() NOT NULL,
-    created_by UUID REFERENCES auth.users(id),
+    created_by UUID,
     updated_at TIMESTAMPTZ DEFAULT now() NOT NULL,
-    updated_by UUID REFERENCES auth.users(id),
+    updated_by UUID,
     deleted_at TIMESTAMPTZ,
-    deleted_by UUID REFERENCES auth.users(id),
+    deleted_by UUID,
     version INTEGER DEFAULT 1 NOT NULL,
 
     UNIQUE(user_id, deleted_at)
@@ -294,7 +304,7 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON public.user_preferences TO service_role;
 -- =====================================================================================
 CREATE TABLE public.user_onboarding (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+    user_id UUID NOT NULL,
     
     -- Onboarding progress
     onboarding_completed BOOLEAN DEFAULT false,
@@ -314,11 +324,11 @@ CREATE TABLE public.user_onboarding (
     
     -- Audit fields
     created_at TIMESTAMPTZ DEFAULT now() NOT NULL,
-    created_by UUID REFERENCES auth.users(id),
+    created_by UUID,
     updated_at TIMESTAMPTZ DEFAULT now() NOT NULL,
-    updated_by UUID REFERENCES auth.users(id),
+    updated_by UUID,
     deleted_at TIMESTAMPTZ,
-    deleted_by UUID REFERENCES auth.users(id),
+    deleted_by UUID,
     version INTEGER DEFAULT 1 NOT NULL,
 
     UNIQUE(user_id, deleted_at)
@@ -335,7 +345,6 @@ CREATE INDEX idx_user_onboarding_marketing ON public.user_onboarding(marketing_c
 GRANT SELECT ON public.user_onboarding TO authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.user_onboarding TO service_role;
 
-
 -- =====================================================================================
 -- RBAC Tables
 -- =====================================================================================
@@ -346,7 +355,7 @@ CREATE TABLE public.roles (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     name TEXT NOT NULL,
     description TEXT,
-    type enums.role_type NOT NULL DEFAULT 'custom',
+    type TEXT NOT NULL DEFAULT 'custom',
     is_system BOOLEAN DEFAULT false,
     is_active BOOLEAN DEFAULT true,
     permissions TEXT[] DEFAULT ARRAY[]::TEXT[],
@@ -354,11 +363,11 @@ CREATE TABLE public.roles (
     
     -- Audit fields
     created_at TIMESTAMPTZ DEFAULT now() NOT NULL,
-    created_by UUID REFERENCES auth.users(id),
+    created_by UUID,
     updated_at TIMESTAMPTZ DEFAULT now() NOT NULL,
-    updated_by UUID REFERENCES auth.users(id),
+    updated_by UUID,
     deleted_at TIMESTAMPTZ,
-    deleted_by UUID REFERENCES auth.users(id),
+    deleted_by UUID,
     version INTEGER DEFAULT 1 NOT NULL,
     
     UNIQUE(name, deleted_at)
@@ -389,11 +398,11 @@ CREATE TABLE public.permissions (
     
     -- Audit fields
     created_at TIMESTAMPTZ DEFAULT now() NOT NULL,
-    created_by UUID REFERENCES auth.users(id),
+    created_by UUID,
     updated_at TIMESTAMPTZ DEFAULT now() NOT NULL,
-    updated_by UUID REFERENCES auth.users(id),
+    updated_by UUID,
     deleted_at TIMESTAMPTZ,
-    deleted_by UUID REFERENCES auth.users(id),
+    deleted_by UUID,
     version INTEGER DEFAULT 1 NOT NULL,
     
     UNIQUE(name, deleted_at)
@@ -415,18 +424,18 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON public.permissions TO service_role;
 -- =====================================================================================
 CREATE TABLE public.user_roles (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+    user_id UUID NOT NULL,
     role_id UUID NOT NULL REFERENCES public.roles(id),
     is_active BOOLEAN DEFAULT true,
     metadata JSONB DEFAULT '{}'::JSONB,
     
     -- Audit fields
     created_at TIMESTAMPTZ DEFAULT now() NOT NULL,
-    created_by UUID REFERENCES auth.users(id),
+    created_by UUID,
     updated_at TIMESTAMPTZ DEFAULT now() NOT NULL,
-    updated_by UUID REFERENCES auth.users(id),
+    updated_by UUID,
     deleted_at TIMESTAMPTZ,
-    deleted_by UUID REFERENCES auth.users(id),
+    deleted_by UUID,
     version INTEGER DEFAULT 1 NOT NULL,
     
     UNIQUE(user_id, role_id, deleted_at)
@@ -455,11 +464,11 @@ CREATE TABLE public.role_permissions (
     
     -- Audit fields
     created_at TIMESTAMPTZ DEFAULT now() NOT NULL,
-    created_by UUID REFERENCES auth.users(id),
+    created_by UUID,
     updated_at TIMESTAMPTZ DEFAULT now() NOT NULL,
-    updated_by UUID REFERENCES auth.users(id),
+    updated_by UUID,
     deleted_at TIMESTAMPTZ,
-    deleted_by UUID REFERENCES auth.users(id),
+    deleted_by UUID,
     version INTEGER DEFAULT 1 NOT NULL,
     
     UNIQUE(role_id, permission_id, deleted_at)
@@ -477,140 +486,147 @@ CREATE INDEX idx_role_permissions_is_active ON public.role_permissions(is_active
 GRANT SELECT ON public.role_permissions TO authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.role_permissions TO service_role;
 
--- Role Delegations table: Tracks role management delegations
+-- Role Delegations table: Tracks temporary role assignments and delegations
+-- =====================================================================================
 CREATE TABLE public.role_delegations (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    delegator_id UUID NOT NULL REFERENCES public.profiles(id),
-    delegate_id UUID NOT NULL REFERENCES public.profiles(id),
+    
+    -- Delegation details
+    delegator_id UUID NOT NULL,
+    delegate_id UUID NOT NULL,
     role_id UUID NOT NULL REFERENCES public.roles(id),
-    can_grant BOOLEAN DEFAULT false,
-    can_revoke BOOLEAN DEFAULT false,
-    expires_at TIMESTAMPTZ,
+    
+    -- Time bounds
+    starts_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    ends_at TIMESTAMPTZ,                                       -- NULL means indefinite
+    
+    -- Status
+    status TEXT NOT NULL DEFAULT 'active',  -- active, expired, revoked
     is_active BOOLEAN DEFAULT true,
+    revoked_at TIMESTAMPTZ,
+    revoked_by UUID,
+    revocation_reason TEXT,
+    
+    -- Metadata
+    metadata JSONB DEFAULT '{}'::JSONB,
+    
+    -- Audit fields
     created_at TIMESTAMPTZ DEFAULT now() NOT NULL,
-    created_by UUID REFERENCES public.profiles(id),
+    created_by UUID,
     updated_at TIMESTAMPTZ DEFAULT now() NOT NULL,
-    updated_by UUID REFERENCES public.profiles(id),
+    updated_by UUID,
     deleted_at TIMESTAMPTZ,
-    deleted_by UUID REFERENCES public.profiles(id),
-    CHECK (delegator_id != delegate_id),
-    UNIQUE(delegator_id, delegate_id, role_id, deleted_at)
+    deleted_by UUID,
+    version INTEGER DEFAULT 1 NOT NULL,
+    
+    -- Constraints
+    CONSTRAINT valid_delegation_period CHECK (ends_at IS NULL OR ends_at > starts_at),
+    CONSTRAINT no_self_delegation CHECK (delegator_id != delegate_id)
 );
 
--- Indexes
+-- Indexes for role_delegations
 CREATE INDEX idx_role_delegations_delegator ON public.role_delegations(delegator_id) WHERE deleted_at IS NULL;
 CREATE INDEX idx_role_delegations_delegate ON public.role_delegations(delegate_id) WHERE deleted_at IS NULL;
 CREATE INDEX idx_role_delegations_role ON public.role_delegations(role_id) WHERE deleted_at IS NULL;
-CREATE INDEX idx_role_delegations_expires ON public.role_delegations(expires_at) WHERE deleted_at IS NULL;
+CREATE INDEX idx_role_delegations_status ON public.role_delegations(status) WHERE deleted_at IS NULL;
+CREATE INDEX idx_role_delegations_active ON public.role_delegations(is_active) WHERE deleted_at IS NULL;
+CREATE INDEX idx_role_delegations_dates ON public.role_delegations(starts_at, ends_at) WHERE deleted_at IS NULL;
 
--- Grants
+-- Grants for role_delegations
 GRANT SELECT ON public.role_delegations TO authenticated;
-GRANT ALL ON public.role_delegations TO service_role;
+GRANT SELECT, INSERT, UPDATE ON public.role_delegations TO service_role;
 
-COMMENT ON TABLE public.role_delegations IS 'Role management delegation tracking';
+COMMENT ON TABLE public.role_delegations IS 'Tracks temporary role assignments and delegations between users';
 
 -- =====================================================================================
 -- System Tables
 -- =====================================================================================
 
--- Error Logs table: System-wide error tracking
+-- Keep error_logs table but focus on critical backend errors only
 CREATE TABLE public.error_logs (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    error_message TEXT NOT NULL,
-    error_details TEXT,
-    error_code TEXT,
-    error_stack TEXT,
-    severity enums.severity_type NOT NULL DEFAULT 'ERROR' 
-        CHECK (severity IN ('DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL')),
-    function_name TEXT,
-    schema_name TEXT,
-    table_name TEXT,
-    context_data JSONB,
-    request_data JSONB,
-    user_id UUID REFERENCES public.profiles(id),
-    ip_address TEXT,
-    user_agent TEXT,
-    occurred_at TIMESTAMPTZ DEFAULT now() NOT NULL,
+    severity TEXT NOT NULL,
+    component TEXT NOT NULL,      -- Which system component generated the error
+    error_code TEXT,             -- Specific error code if applicable
+    message TEXT NOT NULL,        -- Error message
+    stack_trace TEXT,            -- Stack trace for backend errors
+    metadata JSONB,              -- Additional context
+    user_id UUID, -- User affected if applicable
     created_at TIMESTAMPTZ DEFAULT now() NOT NULL,
-    is_resolved BOOLEAN DEFAULT false,
-    resolved_at TIMESTAMPTZ,
-    resolved_by UUID REFERENCES public.profiles(id),
-    resolution_notes TEXT
+    created_by UUID
 );
 
--- Indexes
+-- Indexes for error_logs
 CREATE INDEX idx_error_logs_severity ON public.error_logs(severity);
-CREATE INDEX idx_error_logs_occurred_at ON public.error_logs(occurred_at);
+CREATE INDEX idx_error_logs_component ON public.error_logs(component);
 CREATE INDEX idx_error_logs_created_at ON public.error_logs(created_at);
 CREATE INDEX idx_error_logs_user_id ON public.error_logs(user_id);
-CREATE INDEX idx_error_logs_function ON public.error_logs(function_name);
-CREATE INDEX idx_error_logs_is_resolved ON public.error_logs(is_resolved);
-CREATE INDEX idx_error_logs_table_name ON public.error_logs(table_name);
+CREATE INDEX idx_error_logs_error_code ON public.error_logs(error_code) WHERE error_code IS NOT NULL;
 
--- Grants
+-- Grants for error_logs - Restrict to admins and system
 GRANT SELECT ON public.error_logs TO authenticated;
-GRANT ALL ON public.error_logs TO service_role;
+GRANT INSERT, SELECT ON public.error_logs TO service_role;
 
-COMMENT ON TABLE public.error_logs IS 'System-wide error tracking and debugging';
+COMMENT ON TABLE public.error_logs IS 'Critical backend system errors and exceptions';
 
 -- Audit Logs table: System change tracking
 CREATE TABLE public.audit_logs (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    table_name TEXT NOT NULL,
-    record_id UUID NOT NULL,
-    action TEXT NOT NULL,
-    old_data JSONB,
-    new_data JSONB,
-    changed_fields TEXT[],
-    performed_by UUID REFERENCES public.profiles(id),
-    created_at TIMESTAMPTZ DEFAULT now() NOT NULL,
-    ip_address TEXT,
-    user_agent TEXT
+    table_name TEXT NOT NULL,       -- Which table was affected
+    record_id UUID NOT NULL,        -- ID of the changed record
+    action TEXT NOT NULL,           -- INSERT, UPDATE, DELETE
+    old_data JSONB,                -- Previous state (for updates/deletes)
+    new_data JSONB,                -- New state (for inserts/updates)
+    changed_fields TEXT[],         -- Array of changed field names
+    performed_by UUID NOT NULL,
+    performed_at TIMESTAMPTZ DEFAULT now() NOT NULL,
+    reason TEXT,                   -- Optional reason for change
+    ip_address TEXT,               -- IP address of the user
+    application_context JSONB      -- Additional application context
 );
 
--- Indexes
-CREATE INDEX idx_audit_logs_table_name ON public.audit_logs(table_name);
-CREATE INDEX idx_audit_logs_record_id ON public.audit_logs(record_id);
-CREATE INDEX idx_audit_logs_action ON public.audit_logs(action);
+-- Indexes for audit_logs - Optimized for common queries
+CREATE INDEX idx_audit_logs_table_record ON public.audit_logs(table_name, record_id);
 CREATE INDEX idx_audit_logs_performed_by ON public.audit_logs(performed_by);
-CREATE INDEX idx_audit_logs_created_at ON public.audit_logs(created_at);
+CREATE INDEX idx_audit_logs_performed_at ON public.audit_logs(performed_at);
+CREATE INDEX idx_audit_logs_action ON public.audit_logs(action);
+CREATE INDEX idx_audit_logs_changed_fields ON public.audit_logs USING gin(changed_fields);
+CREATE INDEX idx_audit_logs_data ON public.audit_logs USING gin(old_data jsonb_path_ops, new_data jsonb_path_ops);
 
--- Grants
+-- Grants for audit_logs - Restrict access based on roles
 GRANT SELECT ON public.audit_logs TO authenticated;
-GRANT ALL ON public.audit_logs TO service_role;
+GRANT INSERT, SELECT ON public.audit_logs TO service_role;
 
-COMMENT ON TABLE public.audit_logs IS 'Comprehensive system audit trail';
+COMMENT ON TABLE public.audit_logs IS 'Comprehensive system-wide data change tracking';
 
 -- User Activities table: User interaction tracking
 CREATE TABLE public.user_activities (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
-    activity_type TEXT NOT NULL,
-    activity_category TEXT NOT NULL,
-    activity_source TEXT NOT NULL,
-    description TEXT NOT NULL,
-    details JSONB DEFAULT '{}',
-    metadata JSONB DEFAULT '{}',
-    ip_address TEXT,
-    user_agent TEXT,
-    device_info JSONB,
-    location_info JSONB,
-    session_id UUID,
-    page_url TEXT,
+    user_id UUID NOT NULL,
+    activity_type TEXT NOT NULL,    -- Login, Logout, Create, Update, Delete, etc.
+    entity_type TEXT NOT NULL,      -- Which type of record was affected (e.g., 'contact', 'opportunity')
+    entity_id UUID,                 -- ID of the affected record
+    description TEXT NOT NULL,      -- Human-readable description
+    metadata JSONB,                 -- Additional context (e.g., changes made, filters used)
+    ip_address TEXT,                -- User's IP address
+    user_agent TEXT,                -- Browser/client information
     created_at TIMESTAMPTZ DEFAULT now() NOT NULL,
-    updated_at TIMESTAMPTZ DEFAULT now() NOT NULL,
-    deleted_at TIMESTAMPTZ
+    session_id TEXT,                -- To group activities in the same session
+    location JSONB                  -- Geo-location data if available
 );
 
--- Indexes
-CREATE INDEX idx_user_activities_user_id ON public.user_activities(user_id) WHERE deleted_at IS NULL;
-CREATE INDEX idx_user_activities_type ON public.user_activities(activity_type) WHERE deleted_at IS NULL;
-CREATE INDEX idx_user_activities_created_at ON public.user_activities(created_at) WHERE deleted_at IS NULL;
-CREATE INDEX idx_user_activities_category ON public.user_activities(activity_category) WHERE deleted_at IS NULL;
+-- Indexes for user_activities - Optimized for common access patterns
+CREATE INDEX idx_user_activities_user_id ON public.user_activities(user_id);
+CREATE INDEX idx_user_activities_created_at ON public.user_activities(created_at);
+CREATE INDEX idx_user_activities_entity ON public.user_activities(entity_type, entity_id);
+CREATE INDEX idx_user_activities_type ON public.user_activities(activity_type);
+CREATE INDEX idx_user_activities_session ON public.user_activities(session_id) WHERE session_id IS NOT NULL;
+CREATE INDEX idx_user_activities_metadata ON public.user_activities USING gin(metadata jsonb_path_ops);
+CREATE INDEX idx_user_activities_ip ON public.user_activities(ip_address) WHERE ip_address IS NOT NULL;
 
--- Grants
+-- Grants for user_activities - Users can see their own activities
 GRANT SELECT ON public.user_activities TO authenticated;
-GRANT ALL ON public.user_activities TO service_role;
+GRANT INSERT, SELECT ON public.user_activities TO service_role;
 
 COMMENT ON TABLE public.user_activities IS 'User activity and behavior tracking';
 
@@ -626,7 +642,7 @@ CREATE TABLE public.crm_automations (
     -- Campaign Information
     name TEXT NOT NULL,
     description TEXT,
-    campaign_type enums.campaign_type NOT NULL,
+    campaign_type TEXT NOT NULL,
     
     -- Targeting
     target_segment TEXT[] NOT NULL,
@@ -652,7 +668,7 @@ CREATE TABLE public.crm_automations (
     revenue_generated DECIMAL(12,2) DEFAULT 0,
     
     -- Status and Control
-    status enums.campaign_status_type NOT NULL DEFAULT 'draft',
+    status TEXT NOT NULL DEFAULT 'draft',
     is_active BOOLEAN DEFAULT true,
     priority INTEGER CHECK (priority BETWEEN 1 AND 5),
     
@@ -661,7 +677,7 @@ CREATE TABLE public.crm_automations (
     ab_test_variables JSONB,
     
     -- Audit
-    created_by UUID NOT NULL REFERENCES auth.users(id),
+    created_by UUID NOT NULL,
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     deleted_at TIMESTAMPTZ,
@@ -687,12 +703,12 @@ CREATE TABLE public.tasks (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     title TEXT NOT NULL,
     description TEXT,
-    task_type enums.task_type NOT NULL,
-    priority enums.task_priority DEFAULT 'medium' NOT NULL,
-    status enums.task_status_type DEFAULT 'pending' NOT NULL,
+    task_type TEXT NOT NULL,
+    priority TEXT DEFAULT 'medium' NOT NULL,
+    status TEXT DEFAULT 'pending' NOT NULL,
     
     -- Entity Reference (polymorphic association)
-    entity_type enums.crm_entity_type NOT NULL,
+    entity_type TEXT NOT NULL,
     entity_id UUID NOT NULL,
     
     -- Scheduling
@@ -703,7 +719,7 @@ CREATE TABLE public.tasks (
     is_all_day BOOLEAN DEFAULT false,
     
     -- Assignment
-    assigned_to UUID REFERENCES public.profiles(id),
+    assigned_to UUID,
     team_members UUID[] DEFAULT ARRAY[]::UUID[],
     
     -- Recurrence
@@ -715,7 +731,7 @@ CREATE TABLE public.tasks (
     progress INTEGER DEFAULT 0 CHECK (progress >= 0 AND progress <= 100),
     completion_notes TEXT,
     completed_at TIMESTAMPTZ,
-    completed_by UUID REFERENCES public.profiles(id),
+    completed_by UUID,
     
     -- Reminders
     reminder_before INTERVAL,
@@ -729,11 +745,11 @@ CREATE TABLE public.tasks (
     
     -- Audit Fields
     created_at TIMESTAMPTZ DEFAULT now() NOT NULL,
-    created_by UUID REFERENCES public.profiles(id),
+    created_by UUID,
     updated_at TIMESTAMPTZ DEFAULT now() NOT NULL,
-    updated_by UUID REFERENCES public.profiles(id),
+    updated_by UUID,
     deleted_at TIMESTAMPTZ,
-    deleted_by UUID REFERENCES public.profiles(id),
+    deleted_by UUID,
     
     -- Constraints
     CONSTRAINT valid_progress CHECK (progress >= 0 AND progress <= 100),
@@ -776,17 +792,17 @@ CREATE TABLE public.crm_leads (
     email TEXT,
     phone TEXT,
     source TEXT,
-    status enums.lead_status DEFAULT 'new' NOT NULL,
+    status TEXT DEFAULT 'new' NOT NULL,
     notes TEXT,
-    assigned_to UUID REFERENCES public.profiles(id),
-    contact_id UUID REFERENCES public.crm_contacts(id), -- Set when converted to contact
+    assigned_to UUID,
+    contact_id UUID, -- Set when converted to contact
     metadata JSONB DEFAULT '{}',
     created_at TIMESTAMPTZ DEFAULT now() NOT NULL,
-    created_by UUID REFERENCES public.profiles(id),
+    created_by UUID,
     updated_at TIMESTAMPTZ DEFAULT now() NOT NULL,
-    updated_by UUID REFERENCES public.profiles(id),
+    updated_by UUID,
     deleted_at TIMESTAMPTZ,
-    deleted_by UUID REFERENCES public.profiles(id)
+    deleted_by UUID
 );
 
 -- Contacts table: Qualified leads and existing customers
@@ -798,50 +814,50 @@ CREATE TABLE public.crm_contacts (
     email TEXT,
     phone TEXT,
     address JSONB DEFAULT '{}',
-    customer_type enums.customer_type NOT NULL DEFAULT 'prospect',
-    customer_segment enums.customer_segment_type,
+    customer_type TEXT NOT NULL DEFAULT 'prospect',
+    customer_segment TEXT,
     source TEXT,
     notes TEXT,
-    assigned_to UUID REFERENCES public.profiles(id),
+    assigned_to UUID,
     metadata JSONB DEFAULT '{}',
     created_at TIMESTAMPTZ DEFAULT now() NOT NULL,
-    created_by UUID REFERENCES public.profiles(id),
+    created_by UUID,
     updated_at TIMESTAMPTZ DEFAULT now() NOT NULL,
-    updated_by UUID REFERENCES public.profiles(id),
+    updated_by UUID,
     deleted_at TIMESTAMPTZ,
-    deleted_by UUID REFERENCES public.profiles(id)
+    deleted_by UUID
 );
 
 -- Opportunities table: Potential deals or sales
 CREATE TABLE public.crm_opportunities (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    contact_id UUID NOT NULL REFERENCES public.crm_contacts(id),
+    contact_id UUID NOT NULL,
     name TEXT NOT NULL,
     description TEXT,
-    status enums.opportunity_status DEFAULT 'new' NOT NULL,
+    status TEXT DEFAULT 'new' NOT NULL,
     value DECIMAL(15,2),
     currency TEXT DEFAULT 'USD',
     probability INTEGER CHECK (probability >= 0 AND probability <= 100),
     expected_close_date DATE,
     actual_close_date DATE,
-    assigned_to UUID REFERENCES public.profiles(id),
+    assigned_to UUID,
     notes TEXT,
     metadata JSONB DEFAULT '{}',
     created_at TIMESTAMPTZ DEFAULT now() NOT NULL,
-    created_by UUID REFERENCES public.profiles(id),
+    created_by UUID,
     updated_at TIMESTAMPTZ DEFAULT now() NOT NULL,
-    updated_by UUID REFERENCES public.profiles(id),
+    updated_by UUID,
     deleted_at TIMESTAMPTZ,
-    deleted_by UUID REFERENCES public.profiles(id)
+    deleted_by UUID
 );
 
 -- Quotes table: Price quotes for opportunities
 CREATE TABLE public.crm_quotes (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    opportunity_id UUID REFERENCES public.crm_opportunities(id),
-    contact_id UUID NOT NULL REFERENCES public.crm_contacts(id),
+    opportunity_id UUID,
+    contact_id UUID NOT NULL,
     quote_number TEXT NOT NULL UNIQUE,
-    status enums.quote_status DEFAULT 'draft' NOT NULL,
+    status TEXT DEFAULT 'draft' NOT NULL,
     total_amount DECIMAL(15,2) NOT NULL,
     currency TEXT DEFAULT 'USD',
     valid_until DATE,
@@ -850,42 +866,46 @@ CREATE TABLE public.crm_quotes (
     line_items JSONB DEFAULT '[]',
     metadata JSONB DEFAULT '{}',
     created_at TIMESTAMPTZ DEFAULT now() NOT NULL,
-    created_by UUID REFERENCES public.profiles(id),
+    created_by UUID,
     updated_at TIMESTAMPTZ DEFAULT now() NOT NULL,
-    updated_by UUID REFERENCES public.profiles(id),
+    updated_by UUID,
     deleted_at TIMESTAMPTZ,
-    deleted_by UUID REFERENCES public.profiles(id)
+    deleted_by UUID
 );
 
 -- Jobs table: Scheduled work or services
 CREATE TABLE public.crm_jobs (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     job_number TEXT NOT NULL UNIQUE,
-    contact_id UUID NOT NULL REFERENCES public.crm_contacts(id),
-    opportunity_id UUID REFERENCES public.crm_opportunities(id),
-    quote_id UUID REFERENCES public.crm_quotes(id),
+    contact_id UUID NOT NULL,
+    opportunity_id UUID,
+    quote_id UUID,
     title TEXT NOT NULL,
     description TEXT,
-    status enums.job_status DEFAULT 'scheduled' NOT NULL,
-    priority enums.job_priority DEFAULT 'medium' NOT NULL,
+    status TEXT DEFAULT 'scheduled' NOT NULL,
+    priority TEXT DEFAULT 'medium' NOT NULL,
     scheduled_start TIMESTAMPTZ NOT NULL,
     scheduled_end TIMESTAMPTZ NOT NULL,
     actual_start TIMESTAMPTZ,
     actual_end TIMESTAMPTZ,
     location JSONB,
-    assigned_to UUID REFERENCES public.profiles(id),
+    assigned_to UUID,
     team_members UUID[] DEFAULT ARRAY[]::UUID[],
+    
+    -- Equipment and Supplies
     equipment_needed TEXT[],
     estimated_cost DECIMAL(15,2),
     actual_cost DECIMAL(15,2),
+    
+    -- Notes and Comments
     notes TEXT,
     metadata JSONB DEFAULT '{}',
     created_at TIMESTAMPTZ DEFAULT now() NOT NULL,
-    created_by UUID REFERENCES public.profiles(id),
+    created_by UUID,
     updated_at TIMESTAMPTZ DEFAULT now() NOT NULL,
-    updated_by UUID REFERENCES public.profiles(id),
+    updated_by UUID,
     deleted_at TIMESTAMPTZ,
-    deleted_by UUID REFERENCES public.profiles(id),
+    deleted_by UUID,
     CONSTRAINT valid_schedule CHECK (scheduled_end > scheduled_start),
     CONSTRAINT valid_actual_time CHECK (
         (actual_end IS NULL) OR 
@@ -943,11 +963,11 @@ GRANT ALL ON public.crm_jobs TO service_role;
 -- Phone Numbers: Stores multiple phone numbers per user
 CREATE TABLE public.user_phone_numbers (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+    user_id UUID NOT NULL,
     
     -- Phone Information
     phone_number TEXT NOT NULL,
-    phone_type enums.phone_type NOT NULL,
+    phone_type TEXT NOT NULL,
     country_code TEXT NOT NULL,
     is_primary BOOLEAN DEFAULT false,
     is_verified BOOLEAN DEFAULT false,
@@ -967,19 +987,23 @@ CREATE TABLE public.user_phone_numbers (
     deleted_at TIMESTAMPTZ,
 
     -- Constraints
-    CONSTRAINT valid_phone CHECK (phone_number ~ '^\+?[0-9\s-\(\)]+$'),
-    CONSTRAINT one_primary_phone UNIQUE (user_id, is_primary) WHERE is_primary = true AND deleted_at IS NULL
+    CONSTRAINT valid_phone CHECK (phone_number ~ '^\+?[0-9\s-\(\)]+$')
 );
+
+-- Create partial unique index for primary phone numbers
+CREATE UNIQUE INDEX idx_user_phone_numbers_primary 
+    ON public.user_phone_numbers (user_id) 
+    WHERE is_primary = true AND deleted_at IS NULL;
 
 COMMENT ON TABLE public.user_phone_numbers IS 'Stores multiple phone numbers for each user';
 
 -- Addresses: Stores multiple addresses per user
 CREATE TABLE public.user_addresses (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+    user_id UUID NOT NULL,
     
     -- Address Information
-    address_type enums.address_type NOT NULL,
+    address_type TEXT NOT NULL,
     is_primary BOOLEAN DEFAULT false,
     is_verified BOOLEAN DEFAULT false,
     
@@ -1009,11 +1033,13 @@ CREATE TABLE public.user_addresses (
     -- Audit
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-    deleted_at TIMESTAMPTZ,
-
-    -- Constraints
-    CONSTRAINT one_primary_address UNIQUE (user_id, is_primary) WHERE is_primary = true AND deleted_at IS NULL
+    deleted_at TIMESTAMPTZ
 );
+
+-- Create partial unique index for primary address
+CREATE UNIQUE INDEX idx_user_addresses_primary 
+    ON public.user_addresses (user_id) 
+    WHERE is_primary = true AND deleted_at IS NULL;
 
 COMMENT ON TABLE public.user_addresses IS 'Stores multiple addresses for each user';
 
@@ -1026,22 +1052,12 @@ GRANT USAGE ON SCHEMA public TO authenticated;
 GRANT USAGE ON SCHEMA public TO anon;
 GRANT USAGE ON SCHEMA public TO service_role;
 
-CREATE TYPE enums.gender_type AS ENUM ('male', 'female', 'other', 'prefer_not_to_say');
-CREATE TYPE enums.customer_segment_type AS ENUM ('individual', 'business', 'organization');
-CREATE TYPE enums.phone_type AS ENUM ('mobile', 'work', 'home', 'fax', 'other');
-CREATE TYPE enums.address_type AS ENUM ('home', 'work', 'billing', 'shipping', 'other');
-CREATE TYPE enums.task_type AS ENUM ('follow_up', 'call', 'meeting', 'email', 'proposal', 'contract', 'demo', 'support', 'role_expiration', 'system_maintenance');
-CREATE TYPE enums.task_status_type AS ENUM ('pending', 'in_progress', 'completed', 'cancelled', 'blocked', 'deferred');
-CREATE TYPE enums.campaign_type AS ENUM ('email_campaign', 'sms_campaign', 'social_media', 'webinar', 'event', 'newsletter', 'drip_campaign', 'lead_nurturing', 'customer_onboarding', 'retention_campaign');
-CREATE TYPE enums.campaign_status_type AS ENUM ('draft', 'scheduled', 'active', 'paused', 'completed', 'cancelled');
-CREATE TYPE enums.status_type AS ENUM ('active', 'inactive', 'suspended', 'pending');
-
 -- Products/Services table: Catalog of offerings
 CREATE TABLE public.crm_products (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     name TEXT NOT NULL,
     code TEXT UNIQUE,
-    category enums.product_category NOT NULL,
+    category TEXT NOT NULL,
     description TEXT,
     price DECIMAL(15,2),
     currency TEXT DEFAULT 'USD',
@@ -1049,11 +1065,11 @@ CREATE TABLE public.crm_products (
     is_active BOOLEAN DEFAULT true,
     metadata JSONB DEFAULT '{}',
     created_at TIMESTAMPTZ DEFAULT now() NOT NULL,
-    created_by UUID REFERENCES public.profiles(id),
+    created_by UUID,
     updated_at TIMESTAMPTZ DEFAULT now() NOT NULL,
-    updated_by UUID REFERENCES public.profiles(id),
+    updated_by UUID,
     deleted_at TIMESTAMPTZ,
-    deleted_by UUID REFERENCES public.profiles(id)
+    deleted_by UUID
 );
 
 -- Sales Pipelines table: Define different sales processes
@@ -1065,19 +1081,19 @@ CREATE TABLE public.crm_pipelines (
     is_default BOOLEAN DEFAULT false,
     metadata JSONB DEFAULT '{}',
     created_at TIMESTAMPTZ DEFAULT now() NOT NULL,
-    created_by UUID REFERENCES public.profiles(id),
+    created_by UUID,
     updated_at TIMESTAMPTZ DEFAULT now() NOT NULL,
-    updated_by UUID REFERENCES public.profiles(id),
+    updated_by UUID,
     deleted_at TIMESTAMPTZ,
-    deleted_by UUID REFERENCES public.profiles(id)
+    deleted_by UUID
 );
 
 -- Communications table: Track all communications
 CREATE TABLE public.crm_communications (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    entity_type enums.crm_entity_type NOT NULL,
+    entity_type TEXT NOT NULL,
     entity_id UUID NOT NULL,
-    channel enums.communication_channel NOT NULL,
+    channel TEXT NOT NULL,
     direction TEXT NOT NULL CHECK (direction IN ('inbound', 'outbound')),
     subject TEXT,
     content TEXT,
@@ -1086,17 +1102,17 @@ CREATE TABLE public.crm_communications (
     sent_at TIMESTAMPTZ,
     metadata JSONB DEFAULT '{}',
     created_at TIMESTAMPTZ DEFAULT now() NOT NULL,
-    created_by UUID REFERENCES public.profiles(id),
+    created_by UUID,
     updated_at TIMESTAMPTZ DEFAULT now() NOT NULL,
-    updated_by UUID REFERENCES public.profiles(id),
+    updated_by UUID,
     deleted_at TIMESTAMPTZ,
-    deleted_by UUID REFERENCES public.profiles(id)
+    deleted_by UUID
 );
 
 -- Documents table: Store and manage CRM-related documents
 CREATE TABLE public.crm_documents (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    entity_type enums.crm_entity_type NOT NULL,
+    entity_type TEXT NOT NULL,
     entity_id UUID NOT NULL,
     name TEXT NOT NULL,
     description TEXT,
@@ -1108,35 +1124,35 @@ CREATE TABLE public.crm_documents (
     status TEXT NOT NULL CHECK (status IN ('draft', 'final', 'archived')),
     metadata JSONB DEFAULT '{}',
     created_at TIMESTAMPTZ DEFAULT now() NOT NULL,
-    created_by UUID REFERENCES public.profiles(id),
+    created_by UUID,
     updated_at TIMESTAMPTZ DEFAULT now() NOT NULL,
-    updated_by UUID REFERENCES public.profiles(id),
+    updated_by UUID,
     deleted_at TIMESTAMPTZ,
-    deleted_by UUID REFERENCES public.profiles(id)
+    deleted_by UUID
 );
 
 -- Relationships table: Track relationships between CRM entities
 CREATE TABLE public.crm_relationships (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    from_entity_type enums.crm_entity_type NOT NULL,
+    from_entity_type TEXT NOT NULL,
     from_entity_id UUID NOT NULL,
-    to_entity_type enums.crm_entity_type NOT NULL,
+    to_entity_type TEXT NOT NULL,
     to_entity_id UUID NOT NULL,
     relationship_type TEXT NOT NULL,
     metadata JSONB DEFAULT '{}',
     created_at TIMESTAMPTZ DEFAULT now() NOT NULL,
-    created_by UUID REFERENCES public.profiles(id),
+    created_by UUID,
     updated_at TIMESTAMPTZ DEFAULT now() NOT NULL,
-    updated_by UUID REFERENCES public.profiles(id),
+    updated_by UUID,
     deleted_at TIMESTAMPTZ,
-    deleted_by UUID REFERENCES public.profiles(id),
+    deleted_by UUID,
     CONSTRAINT unique_relationship UNIQUE (from_entity_type, from_entity_id, to_entity_type, to_entity_id, relationship_type)
 );
 
 -- Notes table: Universal notes for any CRM entity
 CREATE TABLE public.crm_notes (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    entity_type enums.crm_entity_type NOT NULL,
+    entity_type TEXT NOT NULL,
     entity_id UUID NOT NULL,
     title TEXT,
     content TEXT NOT NULL,
@@ -1144,11 +1160,11 @@ CREATE TABLE public.crm_notes (
     pinned BOOLEAN DEFAULT false,
     metadata JSONB DEFAULT '{}',
     created_at TIMESTAMPTZ DEFAULT now() NOT NULL,
-    created_by UUID REFERENCES public.profiles(id),
+    created_by UUID,
     updated_at TIMESTAMPTZ DEFAULT now() NOT NULL,
-    updated_by UUID REFERENCES public.profiles(id),
+    updated_by UUID,
     deleted_at TIMESTAMPTZ,
-    deleted_by UUID REFERENCES public.profiles(id)
+    deleted_by UUID
 );
 
 -- Indexes for new tables
@@ -1194,17 +1210,17 @@ CREATE TABLE public.inventory_locations (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     name TEXT NOT NULL,
     code TEXT UNIQUE,
-    type enums.inventory_location_type NOT NULL,
+    type TEXT NOT NULL,
     address JSONB,
     contact_info JSONB,
     is_active BOOLEAN DEFAULT true,
     metadata JSONB DEFAULT '{}',
     created_at TIMESTAMPTZ DEFAULT now() NOT NULL,
-    created_by UUID REFERENCES public.profiles(id),
+    created_by UUID,
     updated_at TIMESTAMPTZ DEFAULT now() NOT NULL,
-    updated_by UUID REFERENCES public.profiles(id),
+    updated_by UUID,
     deleted_at TIMESTAMPTZ,
-    deleted_by UUID REFERENCES public.profiles(id)
+    deleted_by UUID
 );
 
 -- Inventory Items table: Track inventory levels
@@ -1217,21 +1233,21 @@ CREATE TABLE public.inventory_items (
     reorder_point DECIMAL(15,2),
     reorder_quantity DECIMAL(15,2),
     last_counted_at TIMESTAMPTZ,
-    last_counted_by UUID REFERENCES public.profiles(id),
+    last_counted_by UUID,
     metadata JSONB DEFAULT '{}',
     created_at TIMESTAMPTZ DEFAULT now() NOT NULL,
-    created_by UUID REFERENCES public.profiles(id),
+    created_by UUID,
     updated_at TIMESTAMPTZ DEFAULT now() NOT NULL,
-    updated_by UUID REFERENCES public.profiles(id),
+    updated_by UUID,
     deleted_at TIMESTAMPTZ,
-    deleted_by UUID REFERENCES public.profiles(id),
+    deleted_by UUID,
     CONSTRAINT unique_product_location UNIQUE (product_id, location_id)
 );
 
 -- Inventory Transactions table: Track all inventory movements
 CREATE TABLE public.inventory_transactions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    transaction_type enums.inventory_transaction_type NOT NULL,
+    transaction_type TEXT NOT NULL,
     product_id UUID REFERENCES public.crm_products(id),
     from_location_id UUID REFERENCES public.inventory_locations(id),
     to_location_id UUID REFERENCES public.inventory_locations(id),
@@ -1243,11 +1259,11 @@ CREATE TABLE public.inventory_transactions (
     notes TEXT,
     metadata JSONB DEFAULT '{}',
     created_at TIMESTAMPTZ DEFAULT now() NOT NULL,
-    created_by UUID REFERENCES public.profiles(id),
+    created_by UUID,
     updated_at TIMESTAMPTZ DEFAULT now() NOT NULL,
-    updated_by UUID REFERENCES public.profiles(id),
+    updated_by UUID,
     deleted_at TIMESTAMPTZ,
-    deleted_by UUID REFERENCES public.profiles(id)
+    deleted_by UUID
 );
 
 -- Purchase Orders table
@@ -1255,7 +1271,7 @@ CREATE TABLE public.purchase_orders (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     po_number TEXT UNIQUE NOT NULL,
     supplier_id UUID NOT NULL,
-    status enums.purchase_order_status DEFAULT 'draft' NOT NULL,
+    status TEXT DEFAULT 'draft' NOT NULL,
     order_date DATE NOT NULL,
     expected_date DATE,
     delivery_date DATE,
@@ -1266,11 +1282,11 @@ CREATE TABLE public.purchase_orders (
     terms_conditions TEXT,
     metadata JSONB DEFAULT '{}',
     created_at TIMESTAMPTZ DEFAULT now() NOT NULL,
-    created_by UUID REFERENCES public.profiles(id),
+    created_by UUID,
     updated_at TIMESTAMPTZ DEFAULT now() NOT NULL,
-    updated_by UUID REFERENCES public.profiles(id),
+    updated_by UUID,
     deleted_at TIMESTAMPTZ,
-    deleted_by UUID REFERENCES public.profiles(id)
+    deleted_by UUID
 );
 
 -- Purchase Order Items table
@@ -1286,11 +1302,11 @@ CREATE TABLE public.purchase_order_items (
     received_quantity DECIMAL(15,2) DEFAULT 0,
     metadata JSONB DEFAULT '{}',
     created_at TIMESTAMPTZ DEFAULT now() NOT NULL,
-    created_by UUID REFERENCES public.profiles(id),
+    created_by UUID,
     updated_at TIMESTAMPTZ DEFAULT now() NOT NULL,
-    updated_by UUID REFERENCES public.profiles(id),
+    updated_by UUID,
     deleted_at TIMESTAMPTZ,
-    deleted_by UUID REFERENCES public.profiles(id)
+    deleted_by UUID
 );
 
 -- =====================================================================================
@@ -1303,17 +1319,17 @@ CREATE TABLE public.chart_of_accounts (
     code TEXT UNIQUE NOT NULL,
     name TEXT NOT NULL,
     description TEXT,
-    account_type enums.account_type NOT NULL,
+    account_type TEXT NOT NULL,
     parent_account_id UUID REFERENCES public.chart_of_accounts(id),
     is_active BOOLEAN DEFAULT true,
     external_id TEXT, -- For third-party integration
     metadata JSONB DEFAULT '{}',
     created_at TIMESTAMPTZ DEFAULT now() NOT NULL,
-    created_by UUID REFERENCES public.profiles(id),
+    created_by UUID,
     updated_at TIMESTAMPTZ DEFAULT now() NOT NULL,
-    updated_by UUID REFERENCES public.profiles(id),
+    updated_by UUID,
     deleted_at TIMESTAMPTZ,
-    deleted_by UUID REFERENCES public.profiles(id)
+    deleted_by UUID
 );
 
 -- Journal Entries table
@@ -1326,15 +1342,15 @@ CREATE TABLE public.journal_entries (
     reference_id UUID,
     is_posted BOOLEAN DEFAULT false,
     posted_at TIMESTAMPTZ,
-    posted_by UUID REFERENCES public.profiles(id),
+    posted_by UUID,
     external_id TEXT, -- For third-party integration
     metadata JSONB DEFAULT '{}',
     created_at TIMESTAMPTZ DEFAULT now() NOT NULL,
-    created_by UUID REFERENCES public.profiles(id),
+    created_by UUID,
     updated_at TIMESTAMPTZ DEFAULT now() NOT NULL,
-    updated_by UUID REFERENCES public.profiles(id),
+    updated_by UUID,
     deleted_at TIMESTAMPTZ,
-    deleted_by UUID REFERENCES public.profiles(id)
+    deleted_by UUID
 );
 
 -- Journal Entry Lines table
@@ -1348,11 +1364,11 @@ CREATE TABLE public.journal_entry_lines (
     external_id TEXT, -- For third-party integration
     metadata JSONB DEFAULT '{}',
     created_at TIMESTAMPTZ DEFAULT now() NOT NULL,
-    created_by UUID REFERENCES public.profiles(id),
+    created_by UUID,
     updated_at TIMESTAMPTZ DEFAULT now() NOT NULL,
-    updated_by UUID REFERENCES public.profiles(id),
+    updated_by UUID,
     deleted_at TIMESTAMPTZ,
-    deleted_by UUID REFERENCES public.profiles(id),
+    deleted_by UUID,
     CONSTRAINT valid_amount CHECK (
         (debit_amount = 0 AND credit_amount > 0) OR
         (debit_amount > 0 AND credit_amount = 0)
@@ -1364,20 +1380,20 @@ CREATE TABLE public.payment_transactions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     transaction_number TEXT UNIQUE NOT NULL,
     payment_date DATE NOT NULL,
-    payment_method enums.payment_method NOT NULL,
+    payment_method TEXT NOT NULL,
     amount DECIMAL(15,2) NOT NULL,
-    status enums.payment_status DEFAULT 'pending' NOT NULL,
+    status TEXT DEFAULT 'pending' NOT NULL,
     reference_type TEXT, -- 'invoice', 'purchase_order', etc.
     reference_id UUID,
     payment_details JSONB, -- Store payment gateway details
     external_id TEXT, -- For third-party integration
     metadata JSONB DEFAULT '{}',
     created_at TIMESTAMPTZ DEFAULT now() NOT NULL,
-    created_by UUID REFERENCES public.profiles(id),
+    created_by UUID,
     updated_at TIMESTAMPTZ DEFAULT now() NOT NULL,
-    updated_by UUID REFERENCES public.profiles(id),
+    updated_by UUID,
     deleted_at TIMESTAMPTZ,
-    deleted_by UUID REFERENCES public.profiles(id)
+    deleted_by UUID
 );
 
 -- Indexes

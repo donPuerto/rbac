@@ -229,6 +229,12 @@ END $$;
 -- =====================================================================================
 DO $$ 
 BEGIN
+    -- Drop System Enums
+    DROP TYPE IF EXISTS public.error_severity_type CASCADE;
+    DROP TYPE IF EXISTS public.delegation_status CASCADE;
+    DROP TYPE IF EXISTS public.customer_type CASCADE;
+    DROP TYPE IF EXISTS public.task_status_type CASCADE;
+    
     -- Drop Accounting Enums
     DROP TYPE IF EXISTS public.journal_entry_type CASCADE;
     DROP TYPE IF EXISTS public.tax_type CASCADE;
