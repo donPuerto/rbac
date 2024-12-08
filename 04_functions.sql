@@ -3204,14 +3204,32 @@ BEGIN
         auth.uid()
     );
 
-    -- Schedule role expiration
-    PERFORM schedule_role_expiration(
-        p_user_id,
-        v_role_id,
-        p_expiry_date
+    -- Schedule expiration job
+    INSERT INTO public.tasks (
+        task_type,
+        title,
+        description,
+        task_data,
+        due_date,
+        priority,
+        status
+    )
+    VALUES (
+        'role_expiration',
+        format('Role expiration for user %s', p_user_id),
+        format('Automatically expire role %s for user %s', v_role_type, p_user_id),
+        jsonb_build_object(
+            'user_id', p_user_id,
+            'role_id', v_role_id,
+            'user_role_id', (SELECT id FROM public.user_roles WHERE user_id = p_user_id AND role_id = v_role_id),
+            'role_type', v_role_type
+        ),
+        p_expiry_date,
+        2, -- Medium priority
+        'pending'
     );
 
-    -- Log successful assignment
+    -- Log scheduling
     INSERT INTO public.audit_logs (
         table_name,
         action,
@@ -3228,7 +3246,7 @@ BEGIN
         ),
         jsonb_build_object(
             'role_id', v_role_id,
-            'role_type', p_role_type,
+            'role_type', v_role_type,
             'role_level', v_role_level,
             'expires_at', p_expiry_date,
             'assigned_by', p_assigned_by,
@@ -3336,24 +3354,28 @@ BEGIN
     END IF;
 
     -- Schedule expiration job
-    INSERT INTO public.scheduled_tasks (
+    INSERT INTO public.tasks (
         task_type,
-        execute_at,
-        parameters,
-        tenant_id,
-        created_by
+        title,
+        description,
+        task_data,
+        due_date,
+        priority,
+        status
     )
     VALUES (
-        'ROLE_EXPIRATION',
-        p_expiry_date,
+        'role_expiration',
+        format('Role expiration for user %s', p_user_id),
+        format('Automatically expire role %s for user %s', v_role_type, p_user_id),
         jsonb_build_object(
             'user_id', p_user_id,
             'role_id', p_role_id,
             'user_role_id', v_user_role_id,
             'role_type', v_role_type
         ),
-        v_tenant_id,
-        auth.uid()
+        p_expiry_date,
+        2, -- Medium priority
+        'pending'
     );
 
     -- Log scheduling
@@ -4555,4 +4577,3 @@ CREATE TRIGGER set_timestamp
 CREATE TRIGGER set_timestamp 
     BEFORE UPDATE ON public.user_addresses
     FOR EACH ROW EXECUTE FUNCTION public.update_timestamp();
-
