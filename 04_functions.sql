@@ -117,7 +117,7 @@
  *     EXECUTE FUNCTION public.handle_new_user();
  */
 
--- Drop existing function and trigger first
+-- Drop existing trigger and function
 DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
 DROP FUNCTION IF EXISTS public.handle_new_user();
 
@@ -141,49 +141,97 @@ BEGIN
 
     -- Create the user profile
     INSERT INTO public.profiles (
+        -- Primary identification
         id,
-        email,
-        first_name,
-        last_name,
+        user_id,
+        
+        -- Basic Information
+        handle,
+        username,
+        full_name,
         display_name,
         avatar_url,
-        status,
-        preferred_language,
-        timezone,
-        is_active,
-        onboarding_completed,
-        onboarding_step,
-        email_verified,
-        terms_accepted,
-        privacy_accepted,
-        marketing_consent,
-        two_factor_enabled,
-        last_login_at,
+        banner_url,
+        
+        -- Profile Details
+        bio,
+        tagline,
+        website,
+        birth_date,
+        gender,
+        pronouns,
+        
+        -- Status and Metrics
+        is_verified,
+        verification_level,
+        reputation_score,
+        trust_score,
+        followers_count,
+        following_count,
+        profile_views,
+        last_active_at,
+        
+        -- Extended Data
+        metadata,
+        
+        -- Audit fields
         created_at,
-        updated_at
+        created_by,
+        updated_at,
+        updated_by,
+        deleted_at,
+        deleted_by
     ) VALUES (
-        NEW.id,
-        NEW.email,
-        COALESCE(NEW.raw_user_meta_data->>'first_name', 'Unknown'),
-        COALESCE(NEW.raw_user_meta_data->>'last_name', 'User'),
-        COALESCE(NEW.raw_user_meta_data->>'display_name', 
-                 COALESCE(NEW.raw_user_meta_data->>'first_name', 'Unknown') || ' ' || 
-                 COALESCE(NEW.raw_user_meta_data->>'last_name', 'User')),
-        COALESCE(NEW.raw_user_meta_data->>'avatar_url', ''),
-        'pending',
-        COALESCE(NEW.raw_user_meta_data->>'language', 'en'),
-        COALESCE(NEW.raw_user_meta_data->>'timezone', 'UTC'),
-        true,
-        false,
-        1,
-        COALESCE(NEW.email_confirmed_at IS NOT NULL, false),
-        false,
-        false,
-        false,
-        false,
-        NEW.last_sign_in_at,
-        NOW(),
-        NOW()
+        NEW.id,                    -- id
+        NEW.id,                    -- user_id
+        
+        -- Basic Information
+        LOWER(COALESCE(NEW.raw_user_meta_data->>'handle', 
+               REPLACE(LOWER(NEW.email), '@', '_'))),  -- handle
+        COALESCE(NEW.raw_user_meta_data->>'username', 
+                 SPLIT_PART(NEW.email, '@', 1)),       -- username
+        COALESCE(NEW.raw_user_meta_data->>'full_name',
+                 NEW.raw_user_meta_data->>'first_name' || ' ' || NEW.raw_user_meta_data->>'last_name',
+                 'Anonymous User'),                     -- full_name
+        COALESCE(NEW.raw_user_meta_data->>'display_name',
+                 NEW.raw_user_meta_data->>'full_name',
+                 NEW.raw_user_meta_data->>'first_name' || ' ' || NEW.raw_user_meta_data->>'last_name',
+                 'Anonymous User'),                     -- display_name
+        COALESCE(NEW.raw_user_meta_data->>'avatar_url', ''),  -- avatar_url
+        COALESCE(NEW.raw_user_meta_data->>'banner_url', ''),  -- banner_url
+        
+        -- Profile Details
+        '',                        -- bio
+        '',                        -- tagline
+        NULL,                      -- website
+        NULL,                      -- birth_date
+        NULL,                      -- gender
+        NULL,                      -- pronouns
+        
+        -- Status and Metrics
+        false,                     -- is_verified
+        0,                         -- verification_level
+        0,                         -- reputation_score
+        0,                         -- trust_score
+        0,                         -- followers_count
+        0,                         -- following_count
+        0,                         -- profile_views
+        CURRENT_TIMESTAMP,         -- last_active_at
+        
+        -- Extended Data
+        jsonb_build_object(        -- metadata
+            'interests', '[]'::jsonb,
+            'skills', '[]'::jsonb,
+            'tags', '[]'::jsonb
+        ),
+        
+        -- Audit fields
+        CURRENT_TIMESTAMP,         -- created_at
+        NEW.id,                    -- created_by
+        CURRENT_TIMESTAMP,         -- updated_at
+        NEW.id,                    -- updated_by
+        NULL,                      -- deleted_at
+        NULL                       -- deleted_by
     );
 
     -- Create default user preferences
@@ -199,40 +247,98 @@ BEGIN
         weekly_digest,
         marketing_emails,
         created_at,
-        updated_at
+        created_by,
+        updated_at,
+        updated_by
     ) VALUES (
         NEW.id,
-        'system',                -- Default theme follows system
-        'comfortable',           -- Default display density
-        false,                   -- Sidebar expanded by default
-        true,                    -- Email notifications enabled
-        false,                   -- SMS notifications disabled
-        true,                    -- Push notifications enabled
-        true,                    -- In-app notifications enabled
-        true,                    -- Weekly digest enabled
-        false,                   -- Marketing emails disabled
-        NOW(),
-        NOW()
+        'system',
+        'comfortable',
+        false,
+        true,
+        false,
+        true,
+        true,
+        true,
+        false,
+        CURRENT_TIMESTAMP,
+        NEW.id,
+        CURRENT_TIMESTAMP,
+        NEW.id
     );
 
-    -- Assign default role if available
+    -- Create initial user security settings
+    INSERT INTO public.user_security_settings (
+        user_id,
+        two_factor_enabled,
+        last_password_change,
+        password_reset_required,
+        account_locked,
+        failed_login_attempts,
+        created_at,
+        created_by,
+        updated_at,
+        updated_by
+    ) VALUES (
+        NEW.id,
+        false,
+        CURRENT_TIMESTAMP,
+        false,
+        false,
+        0,
+        CURRENT_TIMESTAMP,
+        NEW.id,
+        CURRENT_TIMESTAMP,
+        NEW.id
+    );
+
+    -- Create user onboarding record
+    INSERT INTO public.user_onboarding (
+        user_id,
+        onboarding_completed,
+        onboarding_step,
+        last_active_step,
+        email_verified,
+        terms_accepted,
+        privacy_accepted,
+        marketing_consent,
+        created_at,
+        created_by,
+        updated_at,
+        updated_by
+    ) VALUES (
+        NEW.id,
+        false,
+        1,
+        1,
+        COALESCE(NEW.email_confirmed_at IS NOT NULL, false),
+        false,
+        false,
+        false,
+        CURRENT_TIMESTAMP,
+        NEW.id,
+        CURRENT_TIMESTAMP,
+        NEW.id
+    );
+
+    -- Assign default role
     IF default_role_id IS NOT NULL THEN
         INSERT INTO public.user_roles (
             user_id,
             role_id,
-            assigned_at,
             is_active,
             created_at,
+            created_by,
             updated_at,
-            version
+            updated_by
         ) VALUES (
             NEW.id,
             default_role_id,
-            NOW(),
             true,
-            NOW(),
-            NOW(),
-            1
+            CURRENT_TIMESTAMP,
+            NEW.id,
+            CURRENT_TIMESTAMP,
+            NEW.id
         );
     END IF;
 
@@ -240,31 +346,14 @@ BEGIN
 END;
 $$;
 
--- Create trigger for handle_new_user
-DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
+-- Create trigger for handling new user creation
 CREATE TRIGGER on_auth_user_created
     AFTER INSERT ON auth.users
-    FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
+    FOR EACH ROW
+    EXECUTE FUNCTION public.handle_new_user();
 
 -- Grant necessary permissions
 GRANT EXECUTE ON FUNCTION public.handle_new_user() TO service_role;
-
-
--- Function to automatically convert username to lowercase
-CREATE OR REPLACE FUNCTION public.username_to_lowercase()
-RETURNS trigger AS $$
-BEGIN
-    NEW.username = LOWER(NEW.username);
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
--- Trigger to ensure username is always lowercase
-CREATE TRIGGER ensure_username_lowercase
-    BEFORE INSERT OR UPDATE ON public.profiles
-    FOR EACH ROW
-    EXECUTE FUNCTION public.username_to_lowercase();
-    
 
 /**
  * Function: is_user_active

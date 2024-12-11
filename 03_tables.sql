@@ -290,12 +290,76 @@
 -- * Proper grants and permissions
 -- =====================================================================================
 
+-- Drop existing tables in reverse dependency order
+-- =====================================================================================
+DROP TABLE IF EXISTS public.journal_entry_lines;
+DROP TABLE IF EXISTS public.journal_entries;
+DROP TABLE IF EXISTS public.chart_of_accounts;
+DROP TABLE IF EXISTS public.payment_transactions;
+DROP TABLE IF EXISTS public.purchase_order_items;
+DROP TABLE IF EXISTS public.purchase_orders;
+DROP TABLE IF EXISTS public.inventory_transactions;
+DROP TABLE IF EXISTS public.inventory_items;
+DROP TABLE IF EXISTS public.inventory_locations;
+DROP TABLE IF EXISTS public.task_time_entries;
+DROP TABLE IF EXISTS public.task_comments;
+DROP TABLE IF EXISTS public.task_attachments;
+DROP TABLE IF EXISTS public.tasks;
+DROP TABLE IF EXISTS public.task_lists;
+DROP TABLE IF EXISTS public.task_boards;
+DROP TABLE IF EXISTS public.crm_activities;
+DROP TABLE IF EXISTS public.crm_documents;
+DROP TABLE IF EXISTS public.crm_quotes;
+DROP TABLE IF EXISTS public.crm_opportunities;
+DROP TABLE IF EXISTS public.crm_products;
+DROP TABLE IF EXISTS public.crm_pipelines;
+DROP TABLE IF EXISTS public.crm_leads;
+DROP TABLE IF EXISTS public.crm_contacts;
+DROP TABLE IF EXISTS public.audit_logs;
+DROP TABLE IF EXISTS public.error_logs;
+DROP TABLE IF EXISTS public.user_activities;
+DROP TABLE IF EXISTS public.role_delegations;
+DROP TABLE IF EXISTS public.role_permissions;
+DROP TABLE IF EXISTS public.user_roles;
+DROP TABLE IF EXISTS public.permissions;
+DROP TABLE IF EXISTS public.roles;
+DROP TABLE IF EXISTS public.entity_addresses;
+DROP TABLE IF EXISTS public.entity_phones;
+DROP TABLE IF EXISTS public.entity_emails;
+DROP TABLE IF EXISTS public.user_onboarding;
+DROP TABLE IF EXISTS public.user_security_settings;
+DROP TABLE IF EXISTS public.user_preferences;
+DROP TABLE IF EXISTS public.profiles;
+
 -- Core User Tables
 -- =====================================================================================
 
--- Update Profiles Table
+-- Profiles table: Core user profile information and preferences
 -- =====================================================================================
+-- Description: Stores essential user profile data and public information
+-- Dependencies: auth.users
+-- Notes: Central user information storage with social and verification features
+
+-- Drop existing objects for profiles
+DROP TRIGGER IF EXISTS set_timestamp_profiles ON public.profiles;
+DROP TRIGGER IF EXISTS set_updated_at_profiles ON public.profiles;
+DROP INDEX IF EXISTS idx_profiles_user_id;
+DROP INDEX IF EXISTS idx_profiles_handle;
+DROP INDEX IF EXISTS idx_profiles_username;
+DROP INDEX IF EXISTS idx_profiles_verification;
+DROP INDEX IF EXISTS idx_profiles_last_active;
+DROP INDEX IF EXISTS idx_profiles_tags;
+DROP INDEX IF EXISTS idx_profiles_interests;
+DROP INDEX IF EXISTS idx_profiles_skills;
+DROP INDEX IF EXISTS idx_profiles_metadata;
+
+-- Drop existing grants
+REVOKE ALL ON public.profiles FROM authenticated;
+REVOKE ALL ON public.profiles FROM service_role;
+
+-- Create profiles table
 CREATE TABLE public.profiles (
+    -- Primary identification
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL REFERENCES auth.users(id),
     
@@ -310,65 +374,57 @@ CREATE TABLE public.profiles (
     -- Profile Details
     bio TEXT,
     tagline TEXT,
-    website TEXT,
+    website TEXT CHECK (website IS NULL OR website ~* '^https?://'),
     birth_date DATE,
     gender public.gender_type,
     pronouns TEXT,
     
-    -- Social Media
-    social_links JSONB DEFAULT '{}'::jsonb,
-    followers_count INTEGER DEFAULT 0,
-    following_count INTEGER DEFAULT 0,
-    
-    -- Profile Status
+    -- Status and Metrics
     is_verified BOOLEAN DEFAULT false,
     verification_level INTEGER DEFAULT 0,
-    reputation_score INTEGER DEFAULT 0,
-    trust_score INTEGER DEFAULT 0,
-    
-    -- Profile Customization
-    theme_preference public.theme_type,
-    language_preference TEXT DEFAULT 'en',
-    timezone TEXT,
-    
-    -- Tags and Categories
-    tags TEXT[] DEFAULT ARRAY[]::TEXT[],
-    interests TEXT[] DEFAULT ARRAY[]::TEXT[],
-    skills TEXT[] DEFAULT ARRAY[]::TEXT[],
-    
-    -- Metadata
-    metadata JSONB DEFAULT '{}'::jsonb,
+    reputation_score INTEGER DEFAULT 0 CHECK (reputation_score >= 0),
+    trust_score INTEGER DEFAULT 0 CHECK (trust_score >= 0),
+    followers_count INTEGER DEFAULT 0 CHECK (followers_count >= 0),
+    following_count INTEGER DEFAULT 0 CHECK (following_count >= 0),
+    profile_views INTEGER DEFAULT 0 CHECK (profile_views >= 0),
     last_active_at TIMESTAMPTZ,
-    profile_views INTEGER DEFAULT 0,
+    
+    -- Extended Data (flexible storage for additional fields)
+    metadata JSONB DEFAULT '{}'::jsonb,
     
     -- Audit fields
-    created_at TIMESTAMPTZ DEFAULT now() NOT NULL,
-    created_by UUID,
-    updated_at TIMESTAMPTZ DEFAULT now() NOT NULL,
-    updated_by UUID,
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    created_by UUID REFERENCES auth.users(id),
+    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    updated_by UUID REFERENCES auth.users(id),
     deleted_at TIMESTAMPTZ,
-    deleted_by UUID,
+    deleted_by UUID REFERENCES auth.users(id),
     version INTEGER DEFAULT 1 NOT NULL,
 
+    -- Constraints
     CONSTRAINT valid_handle CHECK (handle IS NOT NULL AND length(handle) >= 3),
-    CONSTRAINT valid_counts CHECK (
-        followers_count >= 0 AND 
-        following_count >= 0 AND 
-        profile_views >= 0
+    CONSTRAINT valid_username CHECK (username IS NULL OR length(username) >= 2),
+    CONSTRAINT valid_scores CHECK (
+        verification_level >= 0 AND
+        reputation_score >= 0 AND
+        trust_score >= 0
     )
 );
+
+-- Add table comments
+COMMENT ON TABLE public.profiles IS 'Stores core user profile information and public data';
+COMMENT ON COLUMN public.profiles.user_id IS 'References auth.users table';
+COMMENT ON COLUMN public.profiles.handle IS 'Unique username for the profile';
+COMMENT ON COLUMN public.profiles.metadata IS 'Flexible JSONB storage for additional profile data';
+COMMENT ON COLUMN public.profiles.version IS 'Version number for optimistic locking';
 
 -- Create indexes for profiles
 CREATE UNIQUE INDEX idx_profiles_user_id ON public.profiles(user_id) WHERE deleted_at IS NULL;
 CREATE UNIQUE INDEX idx_profiles_handle ON public.profiles(handle) WHERE deleted_at IS NULL;
-CREATE INDEX idx_profiles_username ON public.profiles(username) WHERE deleted_at IS NULL;
 CREATE INDEX idx_profiles_verification ON public.profiles(is_verified, verification_level) WHERE deleted_at IS NULL;
-CREATE INDEX idx_profiles_last_active ON public.profiles(last_active_at) WHERE deleted_at IS NULL;
-CREATE INDEX idx_profiles_tags ON public.profiles USING gin(tags) WHERE deleted_at IS NULL;
-CREATE INDEX idx_profiles_interests ON public.profiles USING gin(interests) WHERE deleted_at IS NULL;
-CREATE INDEX idx_profiles_skills ON public.profiles USING gin(skills) WHERE deleted_at IS NULL;
+CREATE INDEX idx_profiles_metadata ON public.profiles USING gin(metadata) WHERE deleted_at IS NULL;
 
--- Add RLS policies for profiles
+-- Enable Row Level Security
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
 
 -- Grants for profiles
@@ -379,7 +435,7 @@ GRANT ALL ON public.profiles TO service_role;
 CREATE TRIGGER set_timestamp_profiles
     BEFORE UPDATE ON public.profiles
     FOR EACH ROW
-    EXECUTE FUNCTION trigger_set_timestamp();
+    EXECUTE FUNCTION public.update_timestamp();
 
 -- User Preferences Table
 -- =====================================================================================
@@ -469,6 +525,15 @@ CREATE TABLE public.user_preferences (
         profile_visibility IN ('public', 'private', 'contacts')
     )
 );
+
+-- Drop existing objects for user_preferences
+DROP TRIGGER IF EXISTS set_timestamp_user_preferences ON public.user_preferences;
+DROP INDEX IF EXISTS idx_user_preferences_user_id;
+DROP INDEX IF EXISTS idx_user_preferences_theme;
+DROP INDEX IF EXISTS idx_user_preferences_language;
+DROP INDEX IF EXISTS idx_user_preferences_timezone;
+REVOKE ALL ON public.user_preferences FROM authenticated;
+REVOKE ALL ON public.user_preferences FROM service_role;
 
 -- Create indexes
 CREATE INDEX idx_user_preferences_user_id ON public.user_preferences(user_id) WHERE deleted_at IS NULL;
@@ -571,6 +636,14 @@ CREATE TABLE public.user_security_settings (
     )
 );
 
+-- Drop existing objects for user_security_settings
+DROP TRIGGER IF EXISTS set_timestamp_user_security ON public.user_security_settings;
+DROP INDEX IF EXISTS idx_user_security_settings_user_id;
+DROP INDEX IF EXISTS idx_user_security_settings_last_login;
+DROP INDEX IF EXISTS idx_user_security_settings_mfa_enabled;
+REVOKE ALL ON public.user_security_settings FROM authenticated;
+REVOKE ALL ON public.user_security_settings FROM service_role;
+
 -- Indexes for user_security_settings
 CREATE UNIQUE INDEX idx_user_security_settings_user_id ON public.user_security_settings(user_id) WHERE deleted_at IS NULL;
 CREATE INDEX idx_user_security_settings_email_verified ON public.user_security_settings(email_verified) WHERE deleted_at IS NULL;
@@ -588,7 +661,7 @@ GRANT ALL ON public.user_security_settings TO service_role;
 CREATE TRIGGER set_timestamp
     BEFORE UPDATE ON public.user_security_settings
     FOR EACH ROW
-    EXECUTE FUNCTION trigger_set_timestamp();
+    EXECUTE FUNCTION public.update_timestamp();
 
 -- User Onboarding table: Tracks the user's journey through the onboarding process
 -- =====================================================================================
@@ -661,6 +734,13 @@ CREATE TABLE public.user_onboarding (
     )
 );
 
+-- Drop existing objects for user_onboarding
+DROP TRIGGER IF EXISTS set_timestamp_user_onboarding ON public.user_onboarding;
+DROP INDEX IF EXISTS idx_user_onboarding_user_id;
+DROP INDEX IF EXISTS idx_user_onboarding_status;
+REVOKE ALL ON public.user_onboarding FROM authenticated;
+REVOKE ALL ON public.user_onboarding FROM service_role;
+
 -- Indexes for user_onboarding
 CREATE UNIQUE INDEX idx_user_onboarding_user_id ON public.user_onboarding(user_id) WHERE deleted_at IS NULL;
 CREATE INDEX idx_user_onboarding_completion ON public.user_onboarding(onboarding_completed, completion_percentage) WHERE deleted_at IS NULL;
@@ -684,7 +764,7 @@ GRANT ALL ON public.user_onboarding TO service_role;
 CREATE TRIGGER set_timestamp
     BEFORE UPDATE ON public.user_onboarding
     FOR EACH ROW
-    EXECUTE FUNCTION trigger_set_timestamp();
+    EXECUTE FUNCTION public.update_timestamp();
 
 -- Entity Contact Tables
 -- =====================================================================================
@@ -806,17 +886,17 @@ GRANT ALL ON public.entity_addresses TO service_role;
 CREATE TRIGGER set_timestamp_emails
     BEFORE UPDATE ON public.entity_emails
     FOR EACH ROW
-    EXECUTE FUNCTION trigger_set_timestamp();
+    EXECUTE FUNCTION public.update_timestamp();
 
 CREATE TRIGGER set_timestamp_phones
     BEFORE UPDATE ON public.entity_phones
     FOR EACH ROW
-    EXECUTE FUNCTION trigger_set_timestamp();
+    EXECUTE FUNCTION public.update_timestamp();
 
 CREATE TRIGGER set_timestamp_addresses
     BEFORE UPDATE ON public.entity_addresses
     FOR EACH ROW
-    EXECUTE FUNCTION trigger_set_timestamp();
+    EXECUTE FUNCTION public.update_timestamp();
 
 -- RBAC (Role-Based Access Control) Tables
 -- =====================================================================================
