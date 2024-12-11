@@ -229,51 +229,43 @@ END $$;
 -- =====================================================================================
 DO $$ 
 BEGIN
+    -- Drop Core User Enums
+    DROP TYPE IF EXISTS public.gender_type CASCADE;
+    DROP TYPE IF EXISTS public.status_type CASCADE;
+    DROP TYPE IF EXISTS public.role_type CASCADE;
+    DROP TYPE IF EXISTS public.address_type CASCADE;
+    DROP TYPE IF EXISTS public.phone_type CASCADE;
+    
     -- Drop System Enums
     DROP TYPE IF EXISTS public.error_severity_type CASCADE;
     DROP TYPE IF EXISTS public.delegation_status CASCADE;
-    DROP TYPE IF EXISTS public.customer_type CASCADE;
-    DROP TYPE IF EXISTS public.task_status_type CASCADE;
-    
-    -- Drop Accounting Enums
-    DROP TYPE IF EXISTS public.journal_entry_type CASCADE;
-    DROP TYPE IF EXISTS public.tax_type CASCADE;
-    DROP TYPE IF EXISTS public.account_type CASCADE;
-    DROP TYPE IF EXISTS public.payment_method CASCADE;
-    DROP TYPE IF EXISTS public.payment_status CASCADE;
-    
-    -- Drop Inventory Enums
-    DROP TYPE IF EXISTS public.purchase_order_status CASCADE;
-    DROP TYPE IF EXISTS public.inventory_location_type CASCADE;
-    DROP TYPE IF EXISTS public.inventory_transaction_type CASCADE;
-    
-    -- Drop Task Management Enums
-    DROP TYPE IF EXISTS public.task_priority CASCADE;
-    DROP TYPE IF EXISTS public.task_status CASCADE;
-    DROP TYPE IF EXISTS public.task_type CASCADE;
     
     -- Drop CRM Enums
-    DROP TYPE IF EXISTS public.document_category CASCADE;
-    DROP TYPE IF EXISTS public.product_category CASCADE;
-    DROP TYPE IF EXISTS public.communication_channel CASCADE;
-    DROP TYPE IF EXISTS public.pipeline_stage CASCADE;
-    DROP TYPE IF EXISTS public.crm_entity_type CASCADE;
-    DROP TYPE IF EXISTS public.job_priority CASCADE;
-    DROP TYPE IF EXISTS public.job_status CASCADE;
-    DROP TYPE IF EXISTS public.quote_status CASCADE;
-    DROP TYPE IF EXISTS public.opportunity_status CASCADE;
-    DROP TYPE IF EXISTS public.lead_status CASCADE;
+    DROP TYPE IF EXISTS public.customer_type CASCADE;
     DROP TYPE IF EXISTS public.customer_segment_type CASCADE;
+    DROP TYPE IF EXISTS public.lead_status CASCADE;
+    DROP TYPE IF EXISTS public.opportunity_status CASCADE;
+    DROP TYPE IF EXISTS public.quote_status CASCADE;
+    DROP TYPE IF EXISTS public.job_status CASCADE;
+    DROP TYPE IF EXISTS public.job_priority CASCADE;
+    DROP TYPE IF EXISTS public.task_type CASCADE;
+    DROP TYPE IF EXISTS public.task_status CASCADE;
+    DROP TYPE IF EXISTS public.task_priority CASCADE;
     DROP TYPE IF EXISTS public.campaign_type CASCADE;
     DROP TYPE IF EXISTS public.campaign_status_type CASCADE;
+    DROP TYPE IF EXISTS public.crm_entity_type CASCADE;
+    DROP TYPE IF EXISTS public.communication_channel CASCADE;
+    DROP TYPE IF EXISTS public.product_category CASCADE;
     
-    -- Drop Core User Enums
-    DROP TYPE IF EXISTS public.mfa_type CASCADE;
-    DROP TYPE IF EXISTS public.phone_type CASCADE;
-    DROP TYPE IF EXISTS public.address_type CASCADE;
-    DROP TYPE IF EXISTS public.role_type CASCADE;
-    DROP TYPE IF EXISTS public.status_type CASCADE;
-    DROP TYPE IF EXISTS public.gender_type CASCADE;
+    -- Drop Inventory Enums
+    DROP TYPE IF EXISTS public.inventory_transaction_type CASCADE;
+    DROP TYPE IF EXISTS public.inventory_location_type CASCADE;
+    DROP TYPE IF EXISTS public.purchase_order_status CASCADE;
+    
+    -- Drop Payment Enums
+    DROP TYPE IF EXISTS public.payment_status CASCADE;
+    DROP TYPE IF EXISTS public.payment_method CASCADE;
+    DROP TYPE IF EXISTS public.account_type CASCADE;
 EXCEPTION
     WHEN OTHERS THEN null; -- Ignore errors if types don't exist
 END $$;

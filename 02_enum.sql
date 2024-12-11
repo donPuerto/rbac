@@ -54,34 +54,35 @@ DROP TYPE IF EXISTS public.status_type CASCADE;
 DROP TYPE IF EXISTS public.role_type CASCADE;
 DROP TYPE IF EXISTS public.address_type CASCADE;
 DROP TYPE IF EXISTS public.phone_type CASCADE;
-DROP TYPE IF EXISTS public.mfa_type CASCADE;
+DROP TYPE IF EXISTS public.error_severity_type CASCADE;
+DROP TYPE IF EXISTS public.delegation_status CASCADE;
+DROP TYPE IF EXISTS public.customer_type CASCADE;
 DROP TYPE IF EXISTS public.customer_segment_type CASCADE;
 DROP TYPE IF EXISTS public.lead_status CASCADE;
 DROP TYPE IF EXISTS public.opportunity_status CASCADE;
 DROP TYPE IF EXISTS public.quote_status CASCADE;
 DROP TYPE IF EXISTS public.job_status CASCADE;
 DROP TYPE IF EXISTS public.job_priority CASCADE;
-DROP TYPE IF EXISTS public.crm_entity_type CASCADE;
-DROP TYPE IF EXISTS public.pipeline_stage CASCADE;
-DROP TYPE IF EXISTS public.communication_channel CASCADE;
-DROP TYPE IF EXISTS public.product_category CASCADE;
-DROP TYPE IF EXISTS public.document_category CASCADE;
 DROP TYPE IF EXISTS public.task_type CASCADE;
 DROP TYPE IF EXISTS public.task_status CASCADE;
 DROP TYPE IF EXISTS public.task_priority CASCADE;
+DROP TYPE IF EXISTS public.campaign_type CASCADE;
+DROP TYPE IF EXISTS public.campaign_status_type CASCADE;
+DROP TYPE IF EXISTS public.crm_entity_type CASCADE;
+DROP TYPE IF EXISTS public.communication_channel CASCADE;
+DROP TYPE IF EXISTS public.product_category CASCADE;
 DROP TYPE IF EXISTS public.inventory_transaction_type CASCADE;
 DROP TYPE IF EXISTS public.inventory_location_type CASCADE;
 DROP TYPE IF EXISTS public.purchase_order_status CASCADE;
 DROP TYPE IF EXISTS public.payment_status CASCADE;
 DROP TYPE IF EXISTS public.payment_method CASCADE;
 DROP TYPE IF EXISTS public.account_type CASCADE;
-DROP TYPE IF EXISTS public.tax_type CASCADE;
-DROP TYPE IF EXISTS public.journal_entry_type CASCADE;
-DROP TYPE IF EXISTS public.error_severity_type CASCADE;
-DROP TYPE IF EXISTS public.delegation_status CASCADE;
-DROP TYPE IF EXISTS public.campaign_type CASCADE;
-DROP TYPE IF EXISTS public.campaign_status_type CASCADE;
-DROP TYPE IF EXISTS public.customer_type CASCADE;
+DROP TYPE IF EXISTS public.referral_status_type CASCADE;
+DROP TYPE IF EXISTS public.entity_type CASCADE;
+DROP TYPE IF EXISTS public.theme_type CASCADE;
+DROP TYPE IF EXISTS public.display_density_type CASCADE;
+DROP TYPE IF EXISTS public.time_format_type CASCADE;
+DROP TYPE IF EXISTS public.date_format_type CASCADE;
 
 -- Create enum types
 -- =====================================================================================
@@ -109,14 +110,61 @@ COMMENT ON TYPE public.status_type IS 'General status options for various entiti
 
 -- Role types
 CREATE TYPE public.role_type AS ENUM (
-    'super_admin',
-    'system_admin',
-    'manager',
-    'user',
-    'guest',
-    'custom'
+    -- System Roles
+    'super_admin',              -- Highest level administrator with full system access
+    'system_admin',             -- System administrator for infrastructure and operations
+    'security_admin',           -- Security, compliance, and access control
+    'audit_admin',             -- System auditing and monitoring
+    
+    -- IT & Development Roles
+    'it_director',            -- Head of IT/Technology
+    'system_architect',       -- System design and technical decisions
+    'tech_lead',             -- Technical team leader
+    'senior_developer',       -- Senior software developer
+    'developer',             -- Software developer
+    'database_admin',        -- Database administration and optimization
+    'devops_engineer',       -- Infrastructure and deployment
+    'qa_engineer',          -- Quality assurance
+    'security_engineer',     -- Security implementation
+    'ui_ux_designer',        -- User interface and experience
+    
+    -- Department Roles
+    'department_head',       -- Department leader
+    'team_lead',            -- Team leader
+    'project_manager',       -- Project management
+    
+    -- CRM Roles
+    'crm_admin',                -- CRM system administrator
+    'sales_manager',            -- Sales team manager
+    'sales_rep',                -- Sales representative
+    'account_manager',          -- Client account manager
+    'customer_support_manager', -- Customer support team manager
+    'customer_support_agent',   -- Customer support representative
+    'marketing_manager',        -- Marketing team manager
+    'marketing_specialist',     -- Marketing team member
+    
+    -- Finance Roles
+    'finance_admin',         -- Finance system administrator
+    'finance_manager',       -- Finance department manager
+    'senior_accountant',     -- Senior accounting and control
+    'accountant',           -- General accounting
+    'accounts_payable',     -- Vendor payments
+    'accounts_receivable',  -- Customer payments
+    'financial_analyst',    -- Financial analysis and reporting
+    'tax_specialist',       -- Tax compliance and planning
+    
+    -- HR Roles
+    'hr_admin',            -- HR system administrator
+    'hr_manager',          -- HR team manager
+    'hr_specialist',       -- HR operations
+    
+    -- Standard Roles
+    'manager',             -- General management
+    'user',               -- Standard user access
+    'guest',              -- Limited guest access
+    'custom'              -- Custom defined role
 );
-COMMENT ON TYPE public.role_type IS 'Available role types in the system';
+COMMENT ON TYPE public.role_type IS 'Comprehensive list of system and business roles';
 
 -- Phone types
 CREATE TYPE public.phone_type AS ENUM (
@@ -165,6 +213,49 @@ CREATE TYPE public.mfa_type AS ENUM (
 );
 COMMENT ON TYPE public.mfa_type IS 'Multi-factor authentication types';
 
+-- Entity Types
+CREATE TYPE public.entity_type AS ENUM (
+    'profile',
+    'contact',
+    'lead',
+    'opportunity',
+    'referral'
+);
+COMMENT ON TYPE public.entity_type IS 'Types of entities that can have contact information';
+
+-- Theme type
+CREATE TYPE public.theme_type AS ENUM (
+    'system',    -- Use system theme
+    'light',     -- Light theme
+    'dark'       -- Dark theme
+);
+COMMENT ON TYPE public.theme_type IS 'UI theme options';
+
+-- Display density type
+CREATE TYPE public.display_density_type AS ENUM (
+    'compact',      -- Minimal spacing
+    'comfortable',  -- Default spacing
+    'spacious'     -- Maximum spacing
+);
+COMMENT ON TYPE public.display_density_type IS 'UI display density options';
+
+-- Time format type
+CREATE TYPE public.time_format_type AS ENUM (
+    '12h',  -- 12-hour format (AM/PM)
+    '24h'   -- 24-hour format
+);
+COMMENT ON TYPE public.time_format_type IS 'Time display format options';
+
+-- Date format type
+CREATE TYPE public.date_format_type AS ENUM (
+    'YYYY-MM-DD',     -- 2024-12-31
+    'DD-MM-YYYY',     -- 31-12-2024
+    'MM-DD-YYYY',     -- 12-31-2024
+    'DD/MM/YYYY',     -- 31/12/2024
+    'MM/DD/YYYY'      -- 12/31/2024
+);
+COMMENT ON TYPE public.date_format_type IS 'Date display format options';
+
 -- 2. CRM Enums
 -- --------------------------------------------------------------------------------------
 
@@ -192,80 +283,91 @@ CREATE TYPE public.lead_status AS ENUM (
     'new',
     'contacted',
     'qualified',
-    'unqualified',
-    'converted'
+    'proposal',
+    'negotiation',
+    'won',
+    'lost',
+    'inactive'
 );
-COMMENT ON TYPE public.lead_status IS 'Status options for leads';
+COMMENT ON TYPE public.lead_status IS 'Status progression for leads';
 
 -- Opportunity status
 CREATE TYPE public.opportunity_status AS ENUM (
-    'new',
-    'discovery',
+    'prospecting',
+    'qualification',
+    'needs_analysis',
     'proposal',
     'negotiation',
     'closed_won',
     'closed_lost'
 );
-COMMENT ON TYPE public.opportunity_status IS 'Status options for opportunities';
+COMMENT ON TYPE public.opportunity_status IS 'Status progression for opportunities';
 
 -- Quote status
 CREATE TYPE public.quote_status AS ENUM (
     'draft',
     'sent',
+    'viewed',
     'accepted',
     'rejected',
-    'expired'
+    'expired',
+    'revised'
 );
-COMMENT ON TYPE public.quote_status IS 'Status options for quotes';
+COMMENT ON TYPE public.quote_status IS 'Status progression for quotes';
 
 -- Job status
 CREATE TYPE public.job_status AS ENUM (
-    'scheduled',
+    'not_started',
     'in_progress',
+    'on_hold',
     'completed',
-    'cancelled',
-    'on_hold'
+    'cancelled'
 );
-COMMENT ON TYPE public.job_status IS 'Status options for jobs';
+COMMENT ON TYPE public.job_status IS 'Status progression for jobs';
 
 -- Job priority
 CREATE TYPE public.job_priority AS ENUM (
     'low',
     'medium',
     'high',
-    'urgent'
+    'urgent',
+    'critical'
 );
 COMMENT ON TYPE public.job_priority IS 'Priority levels for jobs';
 
 -- Task type
 CREATE TYPE public.task_type AS ENUM (
-    'follow_up',
-    'call',
+    'feature',
+    'bug',
+    'improvement',
+    'documentation',
+    'research',
     'meeting',
-    'email',
-    'proposal',
-    'contract',
-    'demo',
-    'support'
+    'review',
+    'other'
 );
 COMMENT ON TYPE public.task_type IS 'Types of tasks';
 
 -- Task status
 CREATE TYPE public.task_status AS ENUM (
-    'pending',
+    'backlog',
+    'todo',
     'in_progress',
+    'in_review',
+    'blocked',
     'completed',
-    'cancelled',
-    'blocked'
+    'cancelled'
 );
-COMMENT ON TYPE public.task_status IS 'Status options for tasks';
+COMMENT ON TYPE public.task_status IS 'Status progression for tasks';
 
 -- Task priority
 CREATE TYPE public.task_priority AS ENUM (
+    'lowest',
     'low',
     'medium',
     'high',
-    'urgent'
+    'highest',
+    'critical'
 );
 COMMENT ON TYPE public.task_priority IS 'Priority levels for tasks';
 
@@ -293,14 +395,14 @@ COMMENT ON TYPE public.campaign_status_type IS 'Status options for campaigns';
 
 -- CRM entity type
 CREATE TYPE public.crm_entity_type AS ENUM (
-    'contact',
     'lead',
-    'opportunity',
+    'contact',
     'account',
-    'campaign',
-    'task',
-    'document',
-    'note'
+    'opportunity',
+    'quote',
+    'job',
+    'product',
+    'referral'
 );
 COMMENT ON TYPE public.crm_entity_type IS 'Types of CRM entities';
 
@@ -309,44 +411,83 @@ CREATE TYPE public.communication_channel AS ENUM (
     'email',
     'phone',
     'sms',
-    'chat',
     'meeting',
-    'social',
-    'other'
+    'video_call',
+    'chat',
+    'social_media',
+    'mail'
 );
-COMMENT ON TYPE public.communication_channel IS 'Communication channels';
+COMMENT ON TYPE public.communication_channel IS 'Communication methods';
 
 -- Product category
 CREATE TYPE public.product_category AS ENUM (
-    'product',
+    'software',
+    'hardware',
     'service',
     'subscription',
-    'bundle'
+    'consulting',
+    'training',
+    'support',
+    'other'
 );
-COMMENT ON TYPE public.product_category IS 'Categories of products/services';
+COMMENT ON TYPE public.product_category IS 'Categories of products';
 
 -- Pipeline stage
 CREATE TYPE public.pipeline_stage AS ENUM (
-    'prospecting',
+    'lead_in',
     'qualification',
-    'needs_analysis',
-    'proposal',
+    'meeting_scheduled',
+    'proposal_sent',
     'negotiation',
+    'contract_sent',
     'closed_won',
     'closed_lost'
 );
-COMMENT ON TYPE public.pipeline_stage IS 'Stages of the sales pipeline';
+COMMENT ON TYPE public.pipeline_stage IS 'Stages in the sales pipeline';
 
 -- Document category
 CREATE TYPE public.document_category AS ENUM (
     'contract',
+    'proposal',
     'invoice',
     'quote',
-    'proposal',
+    'specification',
     'report',
+    'presentation',
     'other'
 );
-COMMENT ON TYPE public.document_category IS 'Types of documents';
+COMMENT ON TYPE public.document_category IS 'Categories of documents';
+
+-- Referral Status Types
+CREATE TYPE public.referral_status_type AS ENUM (
+    'pending',      -- Initial state when referral is created
+    'contacted',    -- Referral has been contacted
+    'qualified',    -- Referral has been qualified as a potential lead
+    'converted',    -- Referral has been converted to a customer
+    'declined',     -- Referral declined or not interested
+    'expired'       -- Referral offer has expired
+);
+COMMENT ON TYPE public.referral_status_type IS 'Status options for referrals';
+
+-- Board type
+CREATE TYPE public.board_type AS ENUM (
+    'kanban',
+    'scrum',
+    'project',
+    'personal',
+    'team'
+);
+COMMENT ON TYPE public.board_type IS 'Types of task boards';
+
+-- List type
+CREATE TYPE public.list_type AS ENUM (
+    'standard',
+    'backlog',
+    'sprint',
+    'done',
+    'archive'
+);
+COMMENT ON TYPE public.list_type IS 'Types of task lists';
 
 -- 3. Inventory Enums
 -- --------------------------------------------------------------------------------------
@@ -357,7 +498,8 @@ CREATE TYPE public.inventory_location_type AS ENUM (
     'store',
     'supplier',
     'customer',
-    'transit'
+    'transit',
+    'virtual'
 );
 COMMENT ON TYPE public.inventory_location_type IS 'Types of inventory locations';
 
@@ -367,20 +509,23 @@ CREATE TYPE public.inventory_transaction_type AS ENUM (
     'sale',
     'transfer',
     'adjustment',
-    'return'
+    'return',
+    'write_off',
+    'count'
 );
 COMMENT ON TYPE public.inventory_transaction_type IS 'Types of inventory transactions';
 
 -- Purchase order status
 CREATE TYPE public.purchase_order_status AS ENUM (
     'draft',
-    'submitted',
+    'pending',
     'approved',
     'ordered',
+    'partial_received',
     'received',
     'cancelled'
 );
-COMMENT ON TYPE public.purchase_order_status IS 'Status options for purchase orders';
+COMMENT ON TYPE public.purchase_order_status IS 'Status progression for purchase orders';
 
 -- 4. Finance Enums
 -- --------------------------------------------------------------------------------------
@@ -392,7 +537,9 @@ CREATE TYPE public.payment_method AS ENUM (
     'debit_card',
     'bank_transfer',
     'check',
-    'crypto'
+    'paypal',
+    'crypto',
+    'other'
 );
 COMMENT ON TYPE public.payment_method IS 'Payment methods';
 
@@ -405,7 +552,7 @@ CREATE TYPE public.payment_status AS ENUM (
     'refunded',
     'cancelled'
 );
-COMMENT ON TYPE public.payment_status IS 'Status options for payments';
+COMMENT ON TYPE public.payment_status IS 'Status progression for payments';
 
 -- Account type
 CREATE TYPE public.account_type AS ENUM (
@@ -419,20 +566,20 @@ COMMENT ON TYPE public.account_type IS 'Types of accounting accounts';
 
 -- Tax type
 CREATE TYPE public.tax_type AS ENUM (
-    'sales_tax',
-    'income_tax',
     'vat',
-    'gst',
-    'other'
+    'sales_tax',
+    'service_tax',
+    'withholding',
+    'none'
 );
 COMMENT ON TYPE public.tax_type IS 'Types of taxes';
 
 -- Journal entry type
 CREATE TYPE public.journal_entry_type AS ENUM (
-    'asset',
-    'liability',
-    'equity',
-    'revenue',
-    'expense'
+    'standard',
+    'adjustment',
+    'closing',
+    'reversing',
+    'recurring'
 );
 COMMENT ON TYPE public.journal_entry_type IS 'Types of journal entries';
