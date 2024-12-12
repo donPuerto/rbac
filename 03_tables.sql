@@ -424,9 +424,6 @@ CREATE UNIQUE INDEX idx_profiles_handle ON public.profiles(handle) WHERE deleted
 CREATE INDEX idx_profiles_verification ON public.profiles(is_verified, verification_level) WHERE deleted_at IS NULL;
 CREATE INDEX idx_profiles_metadata ON public.profiles USING gin(metadata) WHERE deleted_at IS NULL;
 
--- Enable Row Level Security
-ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
-
 -- Grants for profiles
 GRANT SELECT ON public.profiles TO authenticated;
 GRANT ALL ON public.profiles TO service_role;
@@ -443,12 +440,15 @@ CREATE TRIGGER set_timestamp_profiles
 -- Dependencies: profiles
 -- Notes: Manages user customization, notification, and display settings
 
--- Drop existing indexes
+-- Drop existing objects for user_preferences
+DROP TRIGGER IF EXISTS set_timestamp_user_preferences ON public.user_preferences;
+DROP TRIGGER IF EXISTS set_updated_at_user_preferences ON public.user_preferences;
 DROP INDEX IF EXISTS idx_user_preferences_user_id;
 DROP INDEX IF EXISTS idx_user_preferences_theme;
 DROP INDEX IF EXISTS idx_user_preferences_language;
 DROP INDEX IF EXISTS idx_user_preferences_timezone;
 DROP INDEX IF EXISTS idx_user_preferences_notifications;
+DROP INDEX IF EXISTS idx_user_preferences_visibility;
 
 -- Drop existing grants
 REVOKE ALL ON public.user_preferences FROM authenticated;
@@ -526,39 +526,44 @@ CREATE TABLE public.user_preferences (
     )
 );
 
--- Drop existing objects for user_preferences
-DROP TRIGGER IF EXISTS set_timestamp_user_preferences ON public.user_preferences;
-DROP INDEX IF EXISTS idx_user_preferences_user_id;
-DROP INDEX IF EXISTS idx_user_preferences_theme;
-DROP INDEX IF EXISTS idx_user_preferences_language;
-DROP INDEX IF EXISTS idx_user_preferences_timezone;
-REVOKE ALL ON public.user_preferences FROM authenticated;
-REVOKE ALL ON public.user_preferences FROM service_role;
-
--- Create indexes
-CREATE INDEX idx_user_preferences_user_id ON public.user_preferences(user_id) WHERE deleted_at IS NULL;
-CREATE INDEX idx_user_preferences_theme ON public.user_preferences(theme) WHERE deleted_at IS NULL;
-CREATE INDEX idx_user_preferences_language ON public.user_preferences(preferred_language) WHERE deleted_at IS NULL;
-CREATE INDEX idx_user_preferences_timezone ON public.user_preferences(timezone) WHERE deleted_at IS NULL;
-CREATE INDEX idx_user_preferences_notifications ON public.user_preferences(email_notifications, push_notifications, sms_notifications) WHERE deleted_at IS NULL;
-CREATE INDEX idx_user_preferences_visibility ON public.user_preferences(profile_visibility) WHERE deleted_at IS NULL;
-
--- Create grants
-GRANT SELECT ON public.user_preferences TO authenticated;
-GRANT ALL ON public.user_preferences TO service_role;
-
 -- Add table comments
 COMMENT ON TABLE public.user_preferences IS 'Stores user-specific settings and preferences';
 COMMENT ON COLUMN public.user_preferences.user_id IS 'References the profiles table';
 COMMENT ON COLUMN public.user_preferences.preferred_language IS 'User preferred language code';
 COMMENT ON COLUMN public.user_preferences.timezone IS 'User timezone for date/time display';
-COMMENT ON COLUMN public.user_preferences.theme IS 'UI theme preference';
-COMMENT ON COLUMN public.user_preferences.display_density IS 'UI density preference';
+COMMENT ON COLUMN public.user_preferences.date_format IS 'Preferred date display format';
+COMMENT ON COLUMN public.user_preferences.time_format IS 'Preferred time display format';
+COMMENT ON COLUMN public.user_preferences.number_format IS 'Preferred number formatting pattern';
+COMMENT ON COLUMN public.user_preferences.currency IS 'Preferred currency for monetary values';
+COMMENT ON COLUMN public.user_preferences.notification_frequency IS 'How often to send grouped notifications';
 COMMENT ON COLUMN public.user_preferences.quiet_hours_start IS 'Start time for notification quiet hours';
 COMMENT ON COLUMN public.user_preferences.quiet_hours_end IS 'End time for notification quiet hours';
-COMMENT ON COLUMN public.user_preferences.notification_frequency IS 'How often to send grouped notifications';
+COMMENT ON COLUMN public.user_preferences.theme IS 'UI theme preference';
+COMMENT ON COLUMN public.user_preferences.display_density IS 'UI density preference';
+COMMENT ON COLUMN public.user_preferences.default_dashboard IS 'Default landing page/dashboard';
+COMMENT ON COLUMN public.user_preferences.items_per_page IS 'Number of items to display per page';
+COMMENT ON COLUMN public.user_preferences.font_size IS 'Preferred UI font size';
 COMMENT ON COLUMN public.user_preferences.profile_visibility IS 'Who can view the user profile';
 COMMENT ON COLUMN public.user_preferences.version IS 'Version number for optimistic locking';
+
+-- Create indexes
+CREATE UNIQUE INDEX idx_user_preferences_user_id ON public.user_preferences(user_id) WHERE deleted_at IS NULL;
+CREATE INDEX idx_user_preferences_theme ON public.user_preferences(theme) WHERE deleted_at IS NULL;
+CREATE INDEX idx_user_preferences_language ON public.user_preferences(preferred_language) WHERE deleted_at IS NULL;
+CREATE INDEX idx_user_preferences_timezone ON public.user_preferences(timezone) WHERE deleted_at IS NULL;
+CREATE INDEX idx_user_preferences_notifications ON public.user_preferences(email_notifications, push_notifications, sms_notifications) WHERE deleted_at IS NULL;
+CREATE INDEX idx_user_preferences_visibility ON public.user_preferences(profile_visibility) WHERE deleted_at IS NULL;
+CREATE INDEX idx_user_preferences_notification_freq ON public.user_preferences(notification_frequency) WHERE deleted_at IS NULL;
+
+-- Add triggers
+CREATE TRIGGER set_timestamp_user_preferences
+    BEFORE UPDATE ON public.user_preferences
+    FOR EACH ROW
+    EXECUTE FUNCTION public.update_timestamp();
+
+-- Create grants
+GRANT SELECT ON public.user_preferences TO authenticated;
+GRANT ALL ON public.user_preferences TO service_role;
 
 -- User Security Settings Table
 -- =====================================================================================

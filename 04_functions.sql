@@ -180,7 +180,8 @@ BEGIN
         updated_at,
         updated_by,
         deleted_at,
-        deleted_by
+        deleted_by,
+        version
     ) VALUES (
         NEW.id,                    -- id
         NEW.id,                    -- user_id
@@ -231,40 +232,104 @@ BEGIN
         CURRENT_TIMESTAMP,         -- updated_at
         NEW.id,                    -- updated_by
         NULL,                      -- deleted_at
-        NULL                       -- deleted_by
+        NULL,                      -- deleted_by
+        1                          -- version
     );
 
     -- Create default user preferences
     INSERT INTO public.user_preferences (
+        -- Primary identification
         user_id,
-        theme,
-        display_density,
-        sidebar_collapsed,
+        
+        -- Language and locale
+        preferred_language,
+        timezone,
+        date_format,
+        time_format,
+        number_format,
+        currency,
+        
+        -- Notification preferences
         email_notifications,
         sms_notifications,
         push_notifications,
         in_app_notifications,
+        notification_frequency,
+        
+        -- Email preferences
         weekly_digest,
         marketing_emails,
+        security_alerts,
+        product_updates,
+        
+        -- UI preferences
+        theme,
+        sidebar_collapsed,
+        display_density,
+        default_dashboard,
+        items_per_page,
+        enable_animations,
+        high_contrast,
+        font_size,
+        
+        -- Privacy preferences
+        profile_visibility,
+        online_status_visible,
+        activity_status_visible,
+        share_data_for_improvement,
+        
+        -- Audit fields
         created_at,
         created_by,
         updated_at,
-        updated_by
+        updated_by,
+        version
     ) VALUES (
         NEW.id,
-        'system',
-        'comfortable',
-        false,
-        true,
-        false,
-        true,
-        true,
-        true,
-        false,
+        
+        -- Language and locale
+        'en',                       -- preferred_language
+        'UTC',                      -- timezone
+        'YYYY-MM-DD',              -- date_format
+        '24h',                      -- time_format
+        '#,##0.00',                -- number_format
+        'USD',                      -- currency
+        
+        -- Notification preferences
+        true,                       -- email_notifications
+        false,                      -- sms_notifications
+        true,                       -- push_notifications
+        true,                       -- in_app_notifications
+        'instant',                  -- notification_frequency
+        
+        -- Email preferences
+        true,                       -- weekly_digest
+        false,                      -- marketing_emails
+        true,                       -- security_alerts
+        true,                       -- product_updates
+        
+        -- UI preferences
+        'system',                   -- theme
+        false,                      -- sidebar_collapsed
+        'comfortable',              -- display_density
+        'home',                     -- default_dashboard
+        25,                         -- items_per_page
+        true,                       -- enable_animations
+        false,                      -- high_contrast
+        'medium',                   -- font_size
+        
+        -- Privacy preferences
+        'public',                   -- profile_visibility
+        true,                       -- online_status_visible
+        true,                       -- activity_status_visible
+        true,                       -- share_data_for_improvement
+        
+        -- Audit fields
         CURRENT_TIMESTAMP,
         NEW.id,
         CURRENT_TIMESTAMP,
-        NEW.id
+        NEW.id,
+        1                          -- version
     );
 
     -- Create initial user security settings
@@ -278,7 +343,8 @@ BEGIN
         created_at,
         created_by,
         updated_at,
-        updated_by
+        updated_by,
+        version
     ) VALUES (
         NEW.id,
         false,
@@ -289,7 +355,8 @@ BEGIN
         CURRENT_TIMESTAMP,
         NEW.id,
         CURRENT_TIMESTAMP,
-        NEW.id
+        NEW.id,
+        1
     );
 
     -- Create user onboarding record
@@ -305,7 +372,8 @@ BEGIN
         created_at,
         created_by,
         updated_at,
-        updated_by
+        updated_by,
+        version
     ) VALUES (
         NEW.id,
         false,
@@ -318,7 +386,8 @@ BEGIN
         CURRENT_TIMESTAMP,
         NEW.id,
         CURRENT_TIMESTAMP,
-        NEW.id
+        NEW.id,
+        1
     );
 
     -- Assign default role
@@ -330,7 +399,8 @@ BEGIN
             created_at,
             created_by,
             updated_at,
-            updated_by
+            updated_by,
+            version
         ) VALUES (
             NEW.id,
             default_role_id,
@@ -338,7 +408,8 @@ BEGIN
             CURRENT_TIMESTAMP,
             NEW.id,
             CURRENT_TIMESTAMP,
-            NEW.id
+            NEW.id,
+            1
         );
     END IF;
 
@@ -1483,14 +1554,16 @@ BEGIN
                     role_id,
                     granted_by,
                     created_by,
-                    updated_by
+                    updated_by,
+                    version
                 )
                 VALUES (
                     p_user_id,
                     v_role_id,
                     p_managed_by,
                     auth.uid(),
-                    auth.uid()
+                    auth.uid(),
+                    1
                 );
 
             WHEN 'revoke' THEN
@@ -3282,7 +3355,8 @@ BEGIN
         expires_at,
         assigned_by,
         tenant_id,
-        created_by
+        created_by,
+        version
     )
     VALUES (
         p_user_id,
@@ -3290,7 +3364,8 @@ BEGIN
         p_expiry_date,
         p_assigned_by,
         (SELECT tenant_id FROM public.roles WHERE id = v_role_id),
-        auth.uid()
+        auth.uid(),
+        1
     );
 
     -- Schedule expiration job
@@ -3601,13 +3676,15 @@ BEGIN
         role_id,
         permission_id,
         created_by,
-        updated_by
+        updated_by,
+        version
     )
     VALUES (
         p_role_id,
         p_permission_id,
         auth.uid(),
-        auth.uid()
+        auth.uid(),
+        1
     );
 
     -- Log the action
