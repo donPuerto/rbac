@@ -568,15 +568,20 @@ GRANT ALL ON public.user_preferences TO service_role;
 -- User Security Settings Table
 -- =====================================================================================
 -- Description: Manages security-related settings for user accounts
--- Dependencies: profiles (user_id)
+-- Dependencies: auth.users
 -- Notes: Handles MFA, account locking, and security preferences
 
--- Drop existing indexes
+-- Drop existing objects for user_security_settings
+DROP TRIGGER IF EXISTS set_timestamp_user_security ON public.user_security_settings;
+DROP TRIGGER IF EXISTS set_updated_at_user_security ON public.user_security_settings;
 DROP INDEX IF EXISTS idx_user_security_settings_user_id;
-DROP INDEX IF EXISTS idx_user_security_settings_email_verified;
 DROP INDEX IF EXISTS idx_user_security_settings_last_login;
+DROP INDEX IF EXISTS idx_user_security_settings_mfa_enabled;
+DROP INDEX IF EXISTS idx_user_security_settings_email_verified;
 DROP INDEX IF EXISTS idx_user_security_settings_failed_attempts;
 DROP INDEX IF EXISTS idx_user_security_settings_locked_until;
+DROP INDEX IF EXISTS idx_user_security_settings_last_active;
+DROP INDEX IF EXISTS idx_user_security_settings_verification;
 
 -- Drop existing grants
 REVOKE ALL ON public.user_security_settings FROM authenticated;
@@ -584,6 +589,7 @@ REVOKE ALL ON public.user_security_settings FROM service_role;
 
 -- Create table
 CREATE TABLE public.user_security_settings (
+    -- Primary identification
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL REFERENCES auth.users(id),
     
@@ -592,7 +598,7 @@ CREATE TABLE public.user_security_settings (
     two_factor_method TEXT CHECK (two_factor_method IN ('app', 'sms', 'email')),
     recovery_email TEXT CHECK (recovery_email ~* '^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$'),
     recovery_phone TEXT CHECK (recovery_phone ~* '^\+[1-9]\d{1,14}$'),
-    last_password_change TIMESTAMPTZ DEFAULT now(),
+    last_password_change TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     password_expires_at TIMESTAMPTZ,
     password_history JSONB DEFAULT '[]'::jsonb,
     
@@ -624,32 +630,39 @@ CREATE TABLE public.user_security_settings (
     require_2fa_for_sensitive_ops BOOLEAN DEFAULT false,
     
     -- Audit fields
-    created_at TIMESTAMPTZ DEFAULT now() NOT NULL,
-    created_by UUID,
-    updated_at TIMESTAMPTZ DEFAULT now() NOT NULL,
-    updated_by UUID,
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    created_by UUID REFERENCES auth.users(id),
+    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    updated_by UUID REFERENCES auth.users(id),
     deleted_at TIMESTAMPTZ,
-    deleted_by UUID,
+    deleted_by UUID REFERENCES auth.users(id),
     version INTEGER DEFAULT 1 NOT NULL,
     
     -- Additional constraints
+    CONSTRAINT unique_user_security UNIQUE(user_id, deleted_at),
     CONSTRAINT valid_password_expiry CHECK (password_expires_at > last_password_change),
-    CONSTRAINT valid_lock_period CHECK (locked_until > now() OR locked_until IS NULL),
+    CONSTRAINT valid_lock_period CHECK (locked_until > CURRENT_TIMESTAMP OR locked_until IS NULL),
     CONSTRAINT valid_2fa_config CHECK (
         (two_factor_enabled = false) OR 
         (two_factor_enabled = true AND two_factor_method IS NOT NULL)
     )
 );
 
--- Drop existing objects for user_security_settings
-DROP TRIGGER IF EXISTS set_timestamp_user_security ON public.user_security_settings;
-DROP INDEX IF EXISTS idx_user_security_settings_user_id;
-DROP INDEX IF EXISTS idx_user_security_settings_last_login;
-DROP INDEX IF EXISTS idx_user_security_settings_mfa_enabled;
-REVOKE ALL ON public.user_security_settings FROM authenticated;
-REVOKE ALL ON public.user_security_settings FROM service_role;
+-- Add table comments
+COMMENT ON TABLE public.user_security_settings IS 'Manages security-related settings and preferences for user accounts';
+COMMENT ON COLUMN public.user_security_settings.user_id IS 'References the auth.users table';
+COMMENT ON COLUMN public.user_security_settings.two_factor_enabled IS 'Whether two-factor authentication is enabled';
+COMMENT ON COLUMN public.user_security_settings.two_factor_method IS 'Method used for 2FA (app, sms, email)';
+COMMENT ON COLUMN public.user_security_settings.recovery_email IS 'Backup email for account recovery';
+COMMENT ON COLUMN public.user_security_settings.recovery_phone IS 'Backup phone for account recovery';
+COMMENT ON COLUMN public.user_security_settings.password_history IS 'JSON array of previous password hashes';
+COMMENT ON COLUMN public.user_security_settings.trusted_devices IS 'JSON array of trusted device information';
+COMMENT ON COLUMN public.user_security_settings.known_ips IS 'JSON array of known IP addresses';
+COMMENT ON COLUMN public.user_security_settings.verification_documents IS 'JSON array of identity verification documents';
+COMMENT ON COLUMN public.user_security_settings.security_questions IS 'JSON object containing security Q&A';
+COMMENT ON COLUMN public.user_security_settings.version IS 'Version number for optimistic locking';
 
--- Indexes for user_security_settings
+-- Create indexes
 CREATE UNIQUE INDEX idx_user_security_settings_user_id ON public.user_security_settings(user_id) WHERE deleted_at IS NULL;
 CREATE INDEX idx_user_security_settings_email_verified ON public.user_security_settings(email_verified) WHERE deleted_at IS NULL;
 CREATE INDEX idx_user_security_settings_last_login ON public.user_security_settings(last_login_at) WHERE deleted_at IS NULL;
@@ -657,20 +670,42 @@ CREATE INDEX idx_user_security_settings_failed_attempts ON public.user_security_
 CREATE INDEX idx_user_security_settings_locked_until ON public.user_security_settings(locked_until) WHERE deleted_at IS NULL;
 CREATE INDEX idx_user_security_settings_last_active ON public.user_security_settings(last_active_at) WHERE deleted_at IS NULL;
 CREATE INDEX idx_user_security_settings_verification ON public.user_security_settings(email_verified, phone_verified, identity_verified) WHERE deleted_at IS NULL;
+CREATE INDEX idx_user_security_settings_2fa ON public.user_security_settings(two_factor_enabled, two_factor_method) WHERE deleted_at IS NULL;
 
--- Grants for user_security_settings
-GRANT SELECT ON public.user_security_settings TO authenticated;
-GRANT ALL ON public.user_security_settings TO service_role;
-
--- Trigger for updating timestamp
-CREATE TRIGGER set_timestamp
+-- Add triggers
+CREATE TRIGGER set_timestamp_user_security
     BEFORE UPDATE ON public.user_security_settings
     FOR EACH ROW
     EXECUTE FUNCTION public.update_timestamp();
 
+-- Create grants
+GRANT SELECT ON public.user_security_settings TO authenticated;
+GRANT ALL ON public.user_security_settings TO service_role;
+
 -- User Onboarding table: Tracks the user's journey through the onboarding process
 -- =====================================================================================
+-- Description: Tracks user onboarding progress, consent management, and completion status
+-- Dependencies: auth.users
+-- Notes: Manages user onboarding flow, consent tracking, and platform preferences
+
+-- Drop existing objects for user_onboarding
+DROP TRIGGER IF EXISTS set_timestamp_user_onboarding ON public.user_onboarding;
+DROP TRIGGER IF EXISTS set_updated_at_user_onboarding ON public.user_onboarding;
+DROP INDEX IF EXISTS idx_user_onboarding_user_id;
+DROP INDEX IF EXISTS idx_user_onboarding_completion;
+DROP INDEX IF EXISTS idx_user_onboarding_step;
+DROP INDEX IF EXISTS idx_user_onboarding_consent;
+DROP INDEX IF EXISTS idx_user_onboarding_platform;
+DROP INDEX IF EXISTS idx_user_onboarding_verification;
+DROP INDEX IF EXISTS idx_user_onboarding_dates;
+
+-- Drop existing grants
+REVOKE ALL ON public.user_onboarding FROM authenticated;
+REVOKE ALL ON public.user_onboarding FROM service_role;
+
+-- Create table
 CREATE TABLE public.user_onboarding (
+    -- Primary identification
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL REFERENCES auth.users(id),
     
@@ -678,7 +713,7 @@ CREATE TABLE public.user_onboarding (
     onboarding_completed BOOLEAN DEFAULT false,
     onboarding_step INTEGER DEFAULT 1 CHECK (onboarding_step BETWEEN 1 AND 10),
     current_step_started_at TIMESTAMPTZ,
-    onboarding_started_at TIMESTAMPTZ,
+    onboarding_started_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     onboarding_completed_at TIMESTAMPTZ,
     completion_percentage INTEGER DEFAULT 0 CHECK (completion_percentage BETWEEN 0 AND 100),
     
@@ -715,12 +750,12 @@ CREATE TABLE public.user_onboarding (
     step_history JSONB DEFAULT '[]'::jsonb,
     
     -- Audit fields
-    created_at TIMESTAMPTZ DEFAULT now() NOT NULL,
-    created_by UUID,
-    updated_at TIMESTAMPTZ DEFAULT now() NOT NULL,
-    updated_by UUID,
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    created_by UUID REFERENCES auth.users(id),
+    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    updated_by UUID REFERENCES auth.users(id),
     deleted_at TIMESTAMPTZ,
-    deleted_by UUID,
+    deleted_by UUID REFERENCES auth.users(id),
     version INTEGER DEFAULT 1 NOT NULL,
 
     -- Constraints
@@ -736,40 +771,49 @@ CREATE TABLE public.user_onboarding (
     CONSTRAINT valid_privacy_acceptance CHECK (
         (privacy_accepted = false) OR 
         (privacy_accepted = true AND privacy_accepted_at IS NOT NULL)
+    ),
+    CONSTRAINT valid_marketing_consent CHECK (
+        (marketing_consent = false) OR 
+        (marketing_consent = true AND marketing_consent_at IS NOT NULL)
+    ),
+    CONSTRAINT valid_step_progress CHECK (
+        last_active_step IS NULL OR 
+        (last_active_step >= 1 AND last_active_step <= onboarding_step)
     )
 );
 
--- Drop existing objects for user_onboarding
-DROP TRIGGER IF EXISTS set_timestamp_user_onboarding ON public.user_onboarding;
-DROP INDEX IF EXISTS idx_user_onboarding_user_id;
-DROP INDEX IF EXISTS idx_user_onboarding_status;
-REVOKE ALL ON public.user_onboarding FROM authenticated;
-REVOKE ALL ON public.user_onboarding FROM service_role;
+-- Add table comments
+COMMENT ON TABLE public.user_onboarding IS 'Tracks user onboarding progress, consent management, and completion status';
+COMMENT ON COLUMN public.user_onboarding.user_id IS 'References the auth.users table';
+COMMENT ON COLUMN public.user_onboarding.onboarding_step IS 'Current step in the onboarding process (1-10)';
+COMMENT ON COLUMN public.user_onboarding.current_step_started_at IS 'When the current step was started';
+COMMENT ON COLUMN public.user_onboarding.completion_percentage IS 'Overall completion percentage of the onboarding process';
+COMMENT ON COLUMN public.user_onboarding.terms_version IS 'Version of the terms accepted by the user';
+COMMENT ON COLUMN public.user_onboarding.privacy_version IS 'Version of the privacy policy accepted by the user';
+COMMENT ON COLUMN public.user_onboarding.marketing_preferences IS 'Detailed marketing preferences by channel';
+COMMENT ON COLUMN public.user_onboarding.device_info IS 'Information about the device used during onboarding';
+COMMENT ON COLUMN public.user_onboarding.utm_parameters IS 'UTM tracking parameters from signup';
+COMMENT ON COLUMN public.user_onboarding.step_history IS 'JSON array tracking timestamps and duration of each step completion';
+COMMENT ON COLUMN public.user_onboarding.version IS 'Version number for optimistic locking';
 
--- Indexes for user_onboarding
+-- Create indexes
 CREATE UNIQUE INDEX idx_user_onboarding_user_id ON public.user_onboarding(user_id) WHERE deleted_at IS NULL;
 CREATE INDEX idx_user_onboarding_completion ON public.user_onboarding(onboarding_completed, completion_percentage) WHERE deleted_at IS NULL;
 CREATE INDEX idx_user_onboarding_step ON public.user_onboarding(onboarding_step, last_active_step) WHERE deleted_at IS NULL;
 CREATE INDEX idx_user_onboarding_consent ON public.user_onboarding(terms_accepted, privacy_accepted, marketing_consent) WHERE deleted_at IS NULL;
 CREATE INDEX idx_user_onboarding_platform ON public.user_onboarding(onboarding_platform) WHERE deleted_at IS NULL;
 CREATE INDEX idx_user_onboarding_verification ON public.user_onboarding(email_verified) WHERE deleted_at IS NULL;
+CREATE INDEX idx_user_onboarding_dates ON public.user_onboarding(onboarding_started_at, onboarding_completed_at) WHERE deleted_at IS NULL;
 
--- Add table comments
-COMMENT ON TABLE public.user_onboarding IS 'Tracks user onboarding progress, consent management, and completion status';
-COMMENT ON COLUMN public.user_onboarding.completion_percentage IS 'Overall completion percentage of the onboarding process';
-COMMENT ON COLUMN public.user_onboarding.step_history IS 'JSON array tracking timestamps and duration of each step completion';
-COMMENT ON COLUMN public.user_onboarding.marketing_preferences IS 'Detailed marketing preferences by channel';
-COMMENT ON COLUMN public.user_onboarding.device_info IS 'Information about the device used during onboarding';
-
--- Grants for user_onboarding
-GRANT SELECT ON public.user_onboarding TO authenticated;
-GRANT ALL ON public.user_onboarding TO service_role;
-
--- Trigger for updating timestamp
-CREATE TRIGGER set_timestamp
+-- Add triggers
+CREATE TRIGGER set_timestamp_user_onboarding
     BEFORE UPDATE ON public.user_onboarding
     FOR EACH ROW
     EXECUTE FUNCTION public.update_timestamp();
+
+-- Create grants
+GRANT SELECT ON public.user_onboarding TO authenticated;
+GRANT ALL ON public.user_onboarding TO service_role;
 
 -- Entity Contact Tables
 -- =====================================================================================

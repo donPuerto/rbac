@@ -334,60 +334,168 @@ BEGIN
 
     -- Create initial user security settings
     INSERT INTO public.user_security_settings (
+        -- Primary identification
         user_id,
+        
+        -- Security settings
         two_factor_enabled,
         last_password_change,
-        password_reset_required,
-        account_locked,
+        password_history,
+        
+        -- Session and security tracking
+        last_login_at,
+        last_active_at,
         failed_login_attempts,
+        last_security_audit,
+        security_questions,
+        
+        -- Device and location tracking
+        trusted_devices,
+        known_ips,
+        
+        -- Verification status
+        email_verified,
+        phone_verified,
+        identity_verified,
+        verification_documents,
+        
+        -- Security preferences
+        login_notification_enabled,
+        suspicious_activity_notification,
+        max_sessions,
+        session_timeout_minutes,
+        require_2fa_for_sensitive_ops,
+        
+        -- Audit fields
         created_at,
         created_by,
         updated_at,
         updated_by,
         version
     ) VALUES (
-        NEW.id,
-        false,
-        CURRENT_TIMESTAMP,
-        false,
-        false,
-        0,
-        CURRENT_TIMESTAMP,
-        NEW.id,
-        CURRENT_TIMESTAMP,
-        NEW.id,
-        1
+        NEW.id,                    -- user_id
+        
+        -- Security settings
+        false,                     -- two_factor_enabled
+        CURRENT_TIMESTAMP,         -- last_password_change
+        '[]'::jsonb,              -- password_history
+        
+        -- Session and security tracking
+        NEW.last_sign_in_at,      -- last_login_at
+        CURRENT_TIMESTAMP,         -- last_active_at
+        0,                        -- failed_login_attempts
+        CURRENT_TIMESTAMP,         -- last_security_audit
+        NULL,                     -- security_questions
+        
+        -- Device and location tracking
+        '[]'::jsonb,              -- trusted_devices
+        '[]'::jsonb,              -- known_ips
+        
+        -- Verification status
+        COALESCE(NEW.email_confirmed_at IS NOT NULL, false),  -- email_verified
+        false,                     -- phone_verified
+        false,                     -- identity_verified
+        '[]'::jsonb,              -- verification_documents
+        
+        -- Security preferences
+        true,                      -- login_notification_enabled
+        true,                      -- suspicious_activity_notification
+        5,                         -- max_sessions
+        60,                        -- session_timeout_minutes
+        false,                     -- require_2fa_for_sensitive_ops
+        
+        -- Audit fields
+        CURRENT_TIMESTAMP,         -- created_at
+        NEW.id,                    -- created_by
+        CURRENT_TIMESTAMP,         -- updated_at
+        NEW.id,                    -- updated_by
+        1                          -- version
     );
 
     -- Create user onboarding record
     INSERT INTO public.user_onboarding (
+        -- Primary identification
         user_id,
+        
+        -- Onboarding progress tracking
         onboarding_completed,
         onboarding_step,
-        last_active_step,
+        current_step_started_at,
+        onboarding_started_at,
+        completion_percentage,
+        
+        -- Step completion status
+        profile_completed,
+        preferences_set,
+        security_configured,
         email_verified,
+        interests_selected,
+        avatar_uploaded,
+        
+        -- Consent and legal tracking
         terms_accepted,
+        terms_version,
         privacy_accepted,
+        privacy_version,
+        
+        -- Marketing and communications
         marketing_consent,
+        marketing_preferences,
+        communication_language,
+        
+        -- Additional tracking
+        device_info,
+        onboarding_platform,
+        last_active_step,
+        step_history,
+        
+        -- Audit fields
         created_at,
         created_by,
         updated_at,
         updated_by,
         version
     ) VALUES (
-        NEW.id,
-        false,
-        1,
-        1,
-        COALESCE(NEW.email_confirmed_at IS NOT NULL, false),
-        false,
-        false,
-        false,
-        CURRENT_TIMESTAMP,
-        NEW.id,
-        CURRENT_TIMESTAMP,
-        NEW.id,
-        1
+        NEW.id,                    -- user_id
+        
+        -- Onboarding progress tracking
+        false,                     -- onboarding_completed
+        1,                         -- onboarding_step
+        CURRENT_TIMESTAMP,         -- current_step_started_at
+        CURRENT_TIMESTAMP,         -- onboarding_started_at
+        0,                         -- completion_percentage
+        
+        -- Step completion status
+        false,                     -- profile_completed
+        false,                     -- preferences_set
+        false,                     -- security_configured
+        COALESCE(NEW.email_confirmed_at IS NOT NULL, false),  -- email_verified
+        false,                     -- interests_selected
+        false,                     -- avatar_uploaded
+        
+        -- Consent and legal tracking
+        false,                     -- terms_accepted
+        '1.0',                     -- terms_version
+        false,                     -- privacy_accepted
+        '1.0',                     -- privacy_version
+        
+        -- Marketing and communications
+        false,                     -- marketing_consent
+        '{"email": false, "sms": false, "push": false}'::jsonb,  -- marketing_preferences
+        'en',                      -- communication_language
+        
+        -- Additional tracking
+        NULL,                      -- device_info
+        'web',                     -- onboarding_platform
+        1,                         -- last_active_step
+        '[]'::jsonb,              -- step_history
+        
+        -- Audit fields
+        CURRENT_TIMESTAMP,         -- created_at
+        NEW.id,                    -- created_by
+        CURRENT_TIMESTAMP,         -- updated_at
+        NEW.id,                    -- updated_by
+        1                          -- version
     );
 
     -- Assign default role
