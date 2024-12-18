@@ -337,12 +337,21 @@ DROP TABLE IF EXISTS public.profiles;
 -- Profiles table: Core user profile information and preferences
 -- =====================================================================================
 -- Description: Stores essential user profile data and public information
--- Dependencies: auth.users
--- Notes: Central user information storage with social and verification features
+-- Dependencies: 
+--   - auth.users (for user authentication)
+--   - public.gender_type (enum for gender options)
+-- Notes: 
+--   - Central user information storage with social and verification features
+--   - Optimized for Supabase and NuxtJS integration
+--   - Includes social features and verification system
+--   - Uses JSONB for flexible metadata storage
 
 -- Drop existing objects for profiles
 DROP TRIGGER IF EXISTS set_timestamp_profiles ON public.profiles;
 DROP TRIGGER IF EXISTS set_updated_at_profiles ON public.profiles;
+DROP TRIGGER IF EXISTS handle_updated_at ON public.profiles;
+
+-- Drop existing indexes
 DROP INDEX IF EXISTS idx_profiles_user_id;
 DROP INDEX IF EXISTS idx_profiles_handle;
 DROP INDEX IF EXISTS idx_profiles_username;
@@ -352,32 +361,44 @@ DROP INDEX IF EXISTS idx_profiles_tags;
 DROP INDEX IF EXISTS idx_profiles_interests;
 DROP INDEX IF EXISTS idx_profiles_skills;
 DROP INDEX IF EXISTS idx_profiles_metadata;
+DROP INDEX IF EXISTS idx_profiles_search;
+DROP INDEX IF EXISTS idx_profiles_social;
 
--- Drop existing grants
+-- Drop existing RLS policies
+DROP POLICY IF EXISTS "Profiles are viewable by authenticated users" ON public.profiles;
+DROP POLICY IF EXISTS "Users can update own profile" ON public.profiles;
+
+-- Revoke existing grants
 REVOKE ALL ON public.profiles FROM authenticated;
 REVOKE ALL ON public.profiles FROM service_role;
+REVOKE ALL ON public.profiles FROM anon;
 
 -- Create profiles table
 CREATE TABLE public.profiles (
     -- Primary identification
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id UUID NOT NULL REFERENCES auth.users(id),
+    user_id UUID NOT NULL UNIQUE REFERENCES auth.users(id) ON DELETE CASCADE,
     
     -- Basic Information
     handle TEXT UNIQUE CHECK (handle ~* '^[a-zA-Z0-9_]{3,50}$'),
     username TEXT CHECK (username ~* '^[a-zA-Z0-9\s]{2,50}$'),
     full_name TEXT,
     display_name TEXT,
-    avatar_url TEXT,
-    banner_url TEXT,
+    avatar_url TEXT CHECK (avatar_url IS NULL OR avatar_url ~* '^https?://'),
+    banner_url TEXT CHECK (banner_url IS NULL OR banner_url ~* '^https?://'),
     
     -- Profile Details
-    bio TEXT,
-    tagline TEXT,
+    bio TEXT CHECK (char_length(bio) <= 500),
+    tagline TEXT CHECK (char_length(tagline) <= 160),
     website TEXT CHECK (website IS NULL OR website ~* '^https?://'),
-    birth_date DATE,
-    gender public.gender_type,
-    pronouns TEXT,
+    birth_date DATE CHECK (birth_date <= CURRENT_DATE),
+    gender public.gender_type DEFAULT 'prefer_not_to_say',
+    pronouns TEXT CHECK (char_length(pronouns) <= 50),
+    
+    -- Location Information
+    country TEXT,
+    city TEXT,
+    timezone TEXT DEFAULT 'UTC',
     
     -- Status and Metrics
     is_verified BOOLEAN DEFAULT false,
@@ -387,10 +408,38 @@ CREATE TABLE public.profiles (
     followers_count INTEGER DEFAULT 0 CHECK (followers_count >= 0),
     following_count INTEGER DEFAULT 0 CHECK (following_count >= 0),
     profile_views INTEGER DEFAULT 0 CHECK (profile_views >= 0),
-    last_active_at TIMESTAMPTZ,
+    last_active_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     
-    -- Extended Data (flexible storage for additional fields)
-    metadata JSONB DEFAULT '{}'::jsonb,
+    -- Social Links
+    social_links JSONB DEFAULT '{
+        "twitter": null,
+        "facebook": null,
+        "linkedin": null,
+        "github": null,
+        "instagram": null
+    }'::jsonb,
+    
+    -- Extended Data
+    metadata JSONB DEFAULT jsonb_build_object(
+        'interests', '[]'::jsonb,
+        'skills', '[]'::jsonb,
+        'languages', '[]'::jsonb,
+        'achievements', '[]'::jsonb,
+        'preferences', '{}'::jsonb,
+        'notifications', '{
+            "email": true,
+            "push": true,
+            "marketing": false
+        }'::jsonb
+    ),
+    
+    -- Search Optimization
+    search_vector tsvector GENERATED ALWAYS AS (
+        setweight(to_tsvector('english', coalesce(full_name, '')), 'A') ||
+        setweight(to_tsvector('english', coalesce(username, '')), 'A') ||
+        setweight(to_tsvector('english', coalesce(bio, '')), 'B') ||
+        setweight(to_tsvector('english', coalesce(tagline, '')), 'B')
+    ) STORED,
     
     -- Audit fields
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP NOT NULL,
@@ -408,27 +457,56 @@ CREATE TABLE public.profiles (
         verification_level >= 0 AND
         reputation_score >= 0 AND
         trust_score >= 0
-    )
+    ),
+    CONSTRAINT valid_social_links CHECK (jsonb_typeof(social_links) = 'object'),
+    CONSTRAINT valid_metadata CHECK (jsonb_typeof(metadata) = 'object')
 );
 
 -- Add table comments
 COMMENT ON TABLE public.profiles IS 'Stores core user profile information and public data';
 COMMENT ON COLUMN public.profiles.user_id IS 'References auth.users table';
-COMMENT ON COLUMN public.profiles.handle IS 'Unique username for the profile';
+COMMENT ON COLUMN public.profiles.handle IS 'Unique username for the profile (3-50 chars, alphanumeric with underscore)';
+COMMENT ON COLUMN public.profiles.username IS 'Display username (2-50 chars, alphanumeric with spaces)';
+COMMENT ON COLUMN public.profiles.bio IS 'User biography (max 500 chars)';
+COMMENT ON COLUMN public.profiles.tagline IS 'Short user description (max 160 chars)';
+COMMENT ON COLUMN public.profiles.social_links IS 'JSON object containing social media profile links';
 COMMENT ON COLUMN public.profiles.metadata IS 'Flexible JSONB storage for additional profile data';
+COMMENT ON COLUMN public.profiles.search_vector IS 'Generated column for full text search';
 COMMENT ON COLUMN public.profiles.version IS 'Version number for optimistic locking';
 
--- Create indexes for profiles
+-- Create indexes
 CREATE UNIQUE INDEX idx_profiles_user_id ON public.profiles(user_id) WHERE deleted_at IS NULL;
 CREATE UNIQUE INDEX idx_profiles_handle ON public.profiles(handle) WHERE deleted_at IS NULL;
+CREATE INDEX idx_profiles_username ON public.profiles(username) WHERE deleted_at IS NULL;
 CREATE INDEX idx_profiles_verification ON public.profiles(is_verified, verification_level) WHERE deleted_at IS NULL;
+CREATE INDEX idx_profiles_last_active ON public.profiles(last_active_at) WHERE deleted_at IS NULL;
 CREATE INDEX idx_profiles_metadata ON public.profiles USING gin(metadata) WHERE deleted_at IS NULL;
+CREATE INDEX idx_profiles_social ON public.profiles USING gin(social_links) WHERE deleted_at IS NULL;
+CREATE INDEX idx_profiles_search ON public.profiles USING gin(search_vector);
+CREATE INDEX idx_profiles_location ON public.profiles(country, city) WHERE deleted_at IS NULL;
 
--- Grants for profiles
+-- Enable Row Level Security
+ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
+
+-- Create RLS Policies
+CREATE POLICY "Profiles are viewable by authenticated users"
+    ON public.profiles
+    FOR SELECT
+    TO authenticated
+    USING (deleted_at IS NULL);
+
+CREATE POLICY "Users can update own profile"
+    ON public.profiles
+    FOR UPDATE
+    TO authenticated
+    USING (auth.uid() = user_id)
+    WITH CHECK (auth.uid() = user_id);
+
+-- Create grants
 GRANT SELECT ON public.profiles TO authenticated;
 GRANT ALL ON public.profiles TO service_role;
 
--- Add trigger for profiles
+-- Add triggers
 CREATE TRIGGER set_timestamp_profiles
     BEFORE UPDATE ON public.profiles
     FOR EACH ROW

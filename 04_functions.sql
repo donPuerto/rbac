@@ -161,6 +161,11 @@ BEGIN
         gender,
         pronouns,
         
+        -- Location Information
+        country,
+        city,
+        timezone,
+        
         -- Status and Metrics
         is_verified,
         verification_level,
@@ -171,6 +176,9 @@ BEGIN
         profile_views,
         last_active_at,
         
+        -- Social Links
+        social_links,
+        
         -- Extended Data
         metadata,
         
@@ -179,8 +187,6 @@ BEGIN
         created_by,
         updated_at,
         updated_by,
-        deleted_at,
-        deleted_by,
         version
     ) VALUES (
         NEW.id,                    -- id
@@ -206,8 +212,13 @@ BEGIN
         '',                        -- tagline
         NULL,                      -- website
         NULL,                      -- birth_date
-        NULL,                      -- gender
+        'prefer_not_to_say',       -- gender
         NULL,                      -- pronouns
+        
+        -- Location Information
+        NULL,                      -- country
+        NULL,                      -- city
+        'UTC',                     -- timezone
         
         -- Status and Metrics
         false,                     -- is_verified
@@ -219,11 +230,27 @@ BEGIN
         0,                         -- profile_views
         CURRENT_TIMESTAMP,         -- last_active_at
         
+        -- Social Links
+        '{
+            "twitter": null,
+            "facebook": null,
+            "linkedin": null,
+            "github": null,
+            "instagram": null
+        }'::jsonb,                 -- social_links
+        
         -- Extended Data
         jsonb_build_object(        -- metadata
             'interests', '[]'::jsonb,
             'skills', '[]'::jsonb,
-            'tags', '[]'::jsonb
+            'languages', '[]'::jsonb,
+            'achievements', '[]'::jsonb,
+            'preferences', '{}'::jsonb,
+            'notifications', '{
+                "email": true,
+                "push": true,
+                "marketing": false
+            }'::jsonb
         ),
         
         -- Audit fields
@@ -231,8 +258,6 @@ BEGIN
         NEW.id,                    -- created_by
         CURRENT_TIMESTAMP,         -- updated_at
         NEW.id,                    -- updated_by
-        NULL,                      -- deleted_at
-        NULL,                      -- deleted_by
         1                          -- version
     );
 

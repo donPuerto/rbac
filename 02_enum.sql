@@ -90,14 +90,19 @@ DROP TYPE IF EXISTS public.date_format_type CASCADE;
 -- 1. User and System Enums
 -- --------------------------------------------------------------------------------------
 
--- Gender options
+-- Drop existing types
+DROP TYPE IF EXISTS public.gender_type;
+
+-- Gender Type
 CREATE TYPE public.gender_type AS ENUM (
     'male',
     'female',
+    'non_binary',
     'other',
     'prefer_not_to_say'
 );
-COMMENT ON TYPE public.gender_type IS 'Gender options for user profiles';
+
+COMMENT ON TYPE public.gender_type IS 'Enumeration of gender options for user profiles';
 
 -- Status options
 CREATE TYPE public.status_type AS ENUM (
