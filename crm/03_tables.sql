@@ -454,7 +454,7 @@ CREATE TABLE public.profiles (
     deleted_by UUID REFERENCES auth.users(id),
     version INTEGER DEFAULT 1 NOT NULL,
 
-        -- Constraints
+    -- Constraints
     -- Basic Information Constraints
     CONSTRAINT valid_handle CHECK (handle IS NOT NULL AND length(handle) >= 3),
     CONSTRAINT valid_username CHECK (username IS NULL OR length(username) >= 2),
@@ -491,10 +491,11 @@ CREATE TABLE public.profiles (
     ),
     CONSTRAINT valid_update CHECK (
         updated_at >= created_at
-    )
+    ),
     CONSTRAINT valid_entity CHECK (
-    (user_id IS NOT NULL AND entity_id IS NULL AND entity_type IS NULL) OR
-    (user_id IS NULL AND entity_id IS NOT NULL AND entity_type IS NOT NULL)
+        (user_id IS NOT NULL AND entity_id IS NULL AND entity_type IS NULL) OR
+        (user_id IS NULL AND entity_id IS NOT NULL AND entity_type IS NOT NULL)
+    )
 );
 
 -- Enable Row Level Security
@@ -1358,7 +1359,7 @@ CREATE TABLE public.entity_emails (
     -- Constraints
     CONSTRAINT unique_active_email UNIQUE(email, deleted_at),
     CONSTRAINT unique_primary_email UNIQUE(entity_id, entity_type, is_primary) 
-        WHERE is_primary = true AND deleted_at IS NULL,
+        WITH (is_primary = true AND deleted_at IS NULL),
     CONSTRAINT valid_dates CHECK (
         created_at <= COALESCE(updated_at, created_at) AND
         COALESCE(updated_at, created_at) <= COALESCE(deleted_at, COALESCE(updated_at, created_at))
@@ -1388,6 +1389,7 @@ CREATE TABLE public.entity_emails (
         security_level IN ('standard', 'high', 'critical')
     ),
     CONSTRAINT valid_version CHECK (version > 0)
+
 );
 
 -- Add table comments

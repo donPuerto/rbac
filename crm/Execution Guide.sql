@@ -17,11 +17,11 @@
 -- 8. Create indexes (07_indexes.sql)
 
 -- Start with clean slate - drop everything in reverse order
-\i 00_drop_policies.sql
-\i 01_enum.sql
-\i 02_tables.sql
-\i 03_functions.sql
-\i 04_initial_data.sql
-\i 05_rls_policies.sql
-\i 06_grant_permissions.sql
-\i 07_indexes.sql
+-- 00_drop_policies.sql
+-- 01_enum.sql
+-- 02_tables.sql
+-- 03_functions.sql
+-- 04_initial_data.sql
+-- 05_rls_policies.sql
+-- 06_grant_permissions.sql
+-- 07_indexes.sql

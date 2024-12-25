@@ -477,23 +477,20 @@ BEGIN
 
     -- Drop existing update_timestamp function
     DROP FUNCTION IF EXISTS public.update_timestamp() CASCADE;
-
-    -- Create update_timestamp function for triggers
-    CREATE OR REPLACE FUNCTION public.update_timestamp()
-    RETURNS TRIGGER AS $$
-    BEGIN
-        NEW.updated_at = CURRENT_TIMESTAMP;
-        RETURN NEW;
-    END;
-    $$ LANGUAGE plpgsql;
-
-EXCEPTION
-    WHEN OTHERS THEN null; -- Ignore errors if functions don't exist
 END $$;
+
+-- Create update_timestamp function for triggers
+CREATE OR REPLACE FUNCTION public.update_timestamp()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.updated_at = CURRENT_TIMESTAMP;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
 
 -- Drop Tables
 -- =====================================================================================
-DO $$ 
+DO $$
 BEGIN
     -- Drop Additional CRM Tables
     DROP TABLE IF EXISTS public.crm_automations CASCADE;
@@ -667,6 +664,12 @@ BEGIN
     DROP TYPE IF EXISTS public.communication_channel CASCADE;
     DROP TYPE IF EXISTS public.inventory_valuation_method CASCADE;
     DROP TYPE IF EXISTS public.unit_of_measure_type CASCADE;
+
+    -- Drop Core System Enums
+    DROP TYPE IF EXISTS public.entity_type CASCADE;
+    DROP TYPE IF EXISTS public.security_level CASCADE;
+    DROP TYPE IF EXISTS public.notification_frequency CASCADE;
+    DROP TYPE IF EXISTS public.subscription_status CASCADE;
 
     -- Drop Core User Enums
     DROP TYPE IF EXISTS public.gender_type CASCADE;
