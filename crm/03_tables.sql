@@ -1358,8 +1358,8 @@ CREATE TABLE public.entity_emails (
     
     -- Constraints
     CONSTRAINT unique_active_email UNIQUE(email, deleted_at),
-    CONSTRAINT unique_primary_email UNIQUE(entity_id, entity_type, is_primary) 
-        WITH (is_primary = true AND deleted_at IS NULL),
+    CONSTRAINT unique_primary_email_base UNIQUE(entity_id, entity_type, is_primary),
+    CONSTRAINT unique_primary_email UNIQUE(entity_id, entity_type, is_primary),
     CONSTRAINT valid_dates CHECK (
         created_at <= COALESCE(updated_at, created_at) AND
         COALESCE(updated_at, created_at) <= COALESCE(deleted_at, COALESCE(updated_at, created_at))
@@ -1405,6 +1405,9 @@ COMMENT ON COLUMN public.entity_emails.metadata IS 'Additional email metadata';
 COMMENT ON COLUMN public.entity_emails.version IS 'Version number for optimistic locking';
 
 -- Create indexes
+CREATE UNIQUE INDEX ON public.entity_emails (entity_id, entity_type, is_primary)
+    WHERE is_primary = true AND deleted_at IS NULL;
+
 CREATE INDEX idx_entity_emails_entity ON public.entity_emails(entity_id, entity_type) WHERE deleted_at IS NULL;
 CREATE INDEX idx_entity_emails_email ON public.entity_emails(email) WHERE deleted_at IS NULL;
 CREATE INDEX idx_entity_emails_status ON public.entity_emails(status) WHERE deleted_at IS NULL;
@@ -1570,8 +1573,7 @@ CREATE TABLE public.entity_phones (
     
     -- Constraints
     CONSTRAINT unique_active_phone UNIQUE(phone_number, deleted_at),
-    CONSTRAINT unique_primary_phone UNIQUE(entity_id, entity_type, is_primary) 
-        WHERE is_primary = true AND deleted_at IS NULL,
+    CONSTRAINT unique_primary_phone_base UNIQUE(entity_id, entity_type, is_primary),
     CONSTRAINT valid_dates CHECK (
         created_at <= COALESCE(updated_at, created_at) AND
         COALESCE(updated_at, created_at) <= COALESCE(deleted_at, COALESCE(updated_at, created_at))
@@ -1614,6 +1616,8 @@ COMMENT ON COLUMN public.entity_phones.metadata IS 'Additional phone metadata';
 COMMENT ON COLUMN public.entity_phones.version IS 'Version number for optimistic locking';
 
 -- Create indexes
+CREATE UNIQUE INDEX ON public.entity_phones (entity_id, entity_type, is_primary)
+    WHERE is_primary = true AND deleted_at IS NULL;
 CREATE INDEX idx_entity_phones_entity ON public.entity_phones(entity_id, entity_type) WHERE deleted_at IS NULL;
 CREATE INDEX idx_entity_phones_number ON public.entity_phones(phone_number) WHERE deleted_at IS NULL;
 CREATE INDEX idx_entity_phones_status ON public.entity_phones(status) WHERE deleted_at IS NULL;
@@ -1794,8 +1798,7 @@ CREATE TABLE public.entity_addresses (
     version INTEGER DEFAULT 1 NOT NULL,
     
     -- Constraints
-    CONSTRAINT unique_primary_address UNIQUE(entity_id, entity_type, is_primary) 
-        WHERE is_primary = true AND deleted_at IS NULL,
+    CONSTRAINT unique_primary_address_base UNIQUE(entity_id, entity_type, is_primary),
     CONSTRAINT valid_dates CHECK (
         created_at <= COALESCE(updated_at, created_at) AND
         COALESCE(updated_at, created_at) <= COALESCE(deleted_at, COALESCE(updated_at, created_at))
@@ -1836,6 +1839,8 @@ COMMENT ON COLUMN public.entity_addresses.metadata IS 'Additional address metada
 COMMENT ON COLUMN public.entity_addresses.version IS 'Version number for optimistic locking';
 
 -- Create indexes
+CREATE UNIQUE INDEX ON public.entity_addresses (entity_id, entity_type, is_primary)
+    WHERE is_primary = true AND deleted_at IS NULL;
 CREATE INDEX idx_entity_addresses_entity ON public.entity_addresses(entity_id, entity_type) WHERE deleted_at IS NULL;
 CREATE INDEX idx_entity_addresses_status ON public.entity_addresses(status) WHERE deleted_at IS NULL;
 CREATE INDEX idx_entity_addresses_type ON public.entity_addresses(address_type) WHERE deleted_at IS NULL;
